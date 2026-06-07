@@ -1,8 +1,8 @@
 // =============================================================
 // FILE: api/chat.js
-// Vercel Serverless Function — handles all Gemini API calls
+// Vercel Serverless Function — handles all Groq API calls
 // Endpoint: POST /api/chat
-// API Key: stored in Vercel Environment Variables as GEMINI_API_KEY
+// API Key: stored in Vercel Environment Variables as GROQ_API_KEY
 // =============================================================
 
 import { getRenovationKnowledge } from '../knowledge/renovation.js';
@@ -14,7 +14,8 @@ import { getWardrobeKnowledge }   from '../knowledge/wardrobes.js';
 import { getShowroomKnowledge }   from '../knowledge/showroom.js';
 import { getWarrantyKnowledge }   from '../knowledge/warranty.js';
 
-const GEMINI_URL = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent';
+const GROQ_URL   = 'https://api.groq.com/openai/v1/chat/completions';
+const GROQ_MODEL = 'llama-3.3-70b-versatile';
 
 // ── Build system prompt ───────────────────────────────────────
 function buildSystemPrompt() {
@@ -64,14 +65,14 @@ RESPONSE RULES:
 - Never invent prices or specs`;
 }
 
-// ── Convert history to Gemini format ─────────────────────────
-function toGeminiHistory(history) {
+// ── Convert history to OpenAI/Groq format ────────────────────
+function toGroqHistory(history) {
     if (!Array.isArray(history)) return [];
     return history
         .filter(m => m && m.role && m.content && m.content.trim() !== '')
         .map(m => ({
-            role:  m.role === 'user' ? 'user' : 'model',
-            parts: [{ text: m.content }]
+            role:    m.role === 'user' ? 'user' : 'assistant',
+            content: m.content.trim()
         }));
 }
 
@@ -83,21 +84,19 @@ export default async function handler(req, res) {
     res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
     res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
 
-    // Handle preflight
     if (req.method === 'OPTIONS') {
         return res.status(200).end();
     }
 
-    // Only allow POST
     if (req.method !== 'POST') {
         return res.status(405).json({ error: 'Method not allowed' });
     }
 
-    // ── Read API key from Vercel environment variables ────────
-    const apiKey = process.env.GEMINI_API_KEY;
+    // ── Read API key ──────────────────────────────────────────
+    const apiKey = process.env.GROQ_API_KEY;
 
     if (!apiKey) {
-        console.error('GEMINI_API_KEY is not set in Vercel environment variables');
+        console.error('GROQ_API_KEY is not set in Vercel environment variables');
         return res.status(500).json({
             error: 'Server configuration error — API key missing'
         });
@@ -110,67 +109,53 @@ export default async function handler(req, res) {
         return res.status(400).json({ error: 'message is required' });
     }
 
-    // ── Build Gemini request ──────────────────────────────────
+    // ── Build & send Groq request ─────────────────────────────
     try {
         const requestBody = {
-            system_instruction: {
-                parts: [{ text: buildSystemPrompt() }]
-            },
-            contents: [
-                ...toGeminiHistory(history || []),
-                { role: 'user', parts: [{ text: message.trim() }] }
+            model: GROQ_MODEL,
+            messages: [
+                { role: 'system',    content: buildSystemPrompt() },
+                ...toGroqHistory(history || []),
+                { role: 'user',      content: message.trim() }
             ],
-            generationConfig: {
-                temperature:     0.7,
-                topK:            40,
-                topP:            0.95,
-                maxOutputTokens: 512
-            },
-            safetySettings: [
-                { category: 'HARM_CATEGORY_HARASSMENT',        threshold: 'BLOCK_MEDIUM_AND_ABOVE' },
-                { category: 'HARM_CATEGORY_HATE_SPEECH',       threshold: 'BLOCK_MEDIUM_AND_ABOVE' },
-                { category: 'HARM_CATEGORY_SEXUALLY_EXPLICIT', threshold: 'BLOCK_MEDIUM_AND_ABOVE' },
-                { category: 'HARM_CATEGORY_DANGEROUS_CONTENT', threshold: 'BLOCK_MEDIUM_AND_ABOVE' }
-            ]
+            temperature: 0.7,
+            max_tokens:  512,
+            top_p:       0.95,
+            stream:      false
         };
 
-        // ── Call Gemini API ───────────────────────────────────
-        const geminiRes = await fetch(
-            `${GEMINI_URL}?key=${apiKey}`,
-            {
-                method:  'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body:    JSON.stringify(requestBody)
-            }
-        );
+        const groqRes = await fetch(GROQ_URL, {
+            method:  'POST',
+            headers: {
+                'Content-Type':  'application/json',
+                'Authorization': `Bearer ${apiKey}`
+            },
+            body: JSON.stringify(requestBody)
+        });
 
-        // ── Handle Gemini errors ──────────────────────────────
-        if (!geminiRes.ok) {
-            const errText = await geminiRes.text();
-            console.error('Gemini API error:', geminiRes.status, errText);
+        if (!groqRes.ok) {
+            const errText = await groqRes.text();
+            console.error('Groq API error:', groqRes.status, errText);
             return res.status(502).json({
-                error:   'Gemini API error',
+                error:   'Groq API error',
                 details: errText
             });
         }
 
-        // ── Parse response ────────────────────────────────────
-        const data = await geminiRes.json();
+        const data = await groqRes.json();
 
         if (
-            !data.candidates            ||
-            !data.candidates[0]         ||
-            !data.candidates[0].content ||
-            !data.candidates[0].content.parts ||
-            !data.candidates[0].content.parts[0]
+            !data.choices            ||
+            !data.choices[0]         ||
+            !data.choices[0].message ||
+            !data.choices[0].message.content
         ) {
-            console.error('Unexpected Gemini response structure:', JSON.stringify(data));
-            return res.status(502).json({ error: 'Invalid response from Gemini' });
+            console.error('Unexpected Groq response structure:', JSON.stringify(data));
+            return res.status(502).json({ error: 'Invalid response from Groq' });
         }
 
-        const reply = data.candidates[0].content.parts[0].text;
+        const reply = data.choices[0].message.content;
 
-        // ── Return success ────────────────────────────────────
         return res.status(200).json({
             success: true,
             message: reply
