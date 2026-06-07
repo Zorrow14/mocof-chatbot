@@ -17,8 +17,46 @@ import { getWarrantyKnowledge }   from '../knowledge/warranty.js';
 const GROQ_URL   = 'https://api.groq.com/openai/v1/chat/completions';
 const GROQ_MODEL = 'llama-3.1-8b-instant';
 
+// ── Detect which knowledge bases are relevant ─────────────────
+function getRelevantKnowledge(message) {
+    const msg = message.toLowerCase();
+    let knowledge = '';
+
+    if (msg.match(/wall bed|wallbed|murphy bed|fold|gioco|murano|single bed|queen bed|ceiling/))
+        knowledge += getWallBedKnowledge();
+
+    if (msg.match(/sofa bed|sofabed|sofa|living room|couch/))
+        knowledge += getSofaBedKnowledge();
+
+    if (msg.match(/table|dining|desk|study/))
+        knowledge += getTableKnowledge();
+
+    if (msg.match(/kitchen|cabinet|cabinetry|cooking|pantry/))
+        knowledge += getKitchenKnowledge();
+
+    if (msg.match(/wardrobe|closet|clothes|storage|walk-in/))
+        knowledge += getWardrobeKnowledge();
+
+    if (msg.match(/showroom|visit|location|address|trx|maison|appointment|open|hour/))
+        knowledge += getShowroomKnowledge();
+
+    if (msg.match(/warranty|guarantee|claim|repair|after.?sales|defect/))
+        knowledge += getWarrantyKnowledge();
+
+    if (msg.match(/renovation|interior|design|house|condo|budget|layout|floor plan/))
+        knowledge += getRenovationKnowledge();
+
+    // Fallback — if nothing matched, send a light default
+    if (!knowledge) {
+        knowledge += getWallBedKnowledge();
+        knowledge += getShowroomKnowledge();
+    }
+
+    return knowledge;
+}
+
 // ── Build system prompt ───────────────────────────────────────
-function buildSystemPrompt() {
+function buildSystemPrompt(message) {
     return `You are Moco, a friendly and professional AI consultant for MOCOF — a premium Malaysian furniture and interior design brand specialising in space-saving solutions.
 
 PERSONALITY:
@@ -39,14 +77,7 @@ PRICING RULES:
 - NEVER fabricate prices not in the knowledge base
 
 YOUR KNOWLEDGE BASE:
-${getWallBedKnowledge()}
-${getSofaBedKnowledge()}
-${getTableKnowledge()}
-${getKitchenKnowledge()}
-${getWardrobeKnowledge()}
-${getShowroomKnowledge()}
-${getWarrantyKnowledge()}
-${getRenovationKnowledge()}
+${getRelevantKnowledge(message)}
 
 PRODUCT RECOMMENDATION RULES:
 - Study room → Gioco Single with Desk (RM 17,538.11 sale)
@@ -128,12 +159,12 @@ export default async function handler(req, res) {
         const requestBody = {
             model: GROQ_MODEL,
             messages: [
-                { role: 'system',    content: buildSystemPrompt() },
+                { role: 'system',    content: buildSystemPrompt(message) },
                 ...toGroqHistory(history || []),
                 { role: 'user',      content: message.trim() }
             ],
             temperature: 0.7,
-            max_tokens:  512,
+            max_tokens:  256,
             top_p:       0.95,
             stream:      false
         };
