@@ -387,14 +387,16 @@ async function process(txt) {
       body:    JSON.stringify({ message: txt, history: chatHistory })
     });
 
+    if (!res.ok) console.error('HTTP error:', res.status, res.statusText);
     var data = await res.json();
 
     hideTyping();
 
     if (data.success && data.message) {
       addBot(data.message);
-      chatHistory.push({ role: 'model', content: data.message });
+      chatHistory.push({ role: 'assistant', content: data.message });
     } else {
+      console.error('API error response:', JSON.stringify(data));
       addBot('I’m sorry, something went wrong. Please try again or visit one of our showrooms!');
     }
 
