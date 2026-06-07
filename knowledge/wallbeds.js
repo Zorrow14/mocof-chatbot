@@ -11,17 +11,17 @@ MURANO SERIES — Vertical Wall Bed (Standard ceiling 2.4m and above)
 MURANO MODELS:
 
 * Murano Queen
-  - Price: RM 17,232.22 (retail) | RM 12,062.55 (sale)
+  - Price: RM 19,102.22 (retail) | RM 14,371.55 (sale)
   - Width: 167cm | Height: 209.5cm | Depth Closed: 45cm | Depth Opened: 220cm
   - Features: Washable headboard, compressed air mechanism, safety point lock
 
 * Murano King
-  - Price: RM 17,232.22 (retail) | RM 12,062.55 (sale)
+  - Price: RM 20,269.22 (retail) | RM 15,285.45 (sale)
   - Width: 198cm | Height: 209.5cm | Depth Closed: 45cm | Depth Opened: 220cm
   - Features: Washable headboard, compressed air mechanism, safety point lock
 
 * Murano Single
-  - Price: RM 17,232.22 (retail) | RM 12,062.55 (sale)
+  - Price: RM 17,232.22 (retail) | RM 13,062.55 (sale)
   - Width: 106cm | Height: 209.5cm | Depth Closed: 45cm | Depth Opened: 220cm
   - Features: Washable headboard, compressed air mechanism, safety point lock
 
