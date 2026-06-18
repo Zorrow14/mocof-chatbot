@@ -2,7 +2,7 @@
 // FILE: api/chat.js
 // Vercel Serverless Function — handles all Groq API calls
 // Endpoint: POST /api/chat
-// API Key: stored in Vercel Environment Variables as GROQ_API_KEY
+// API Keys: GROQ_API_KEY (primary), GROQ_API_KEY_2 (fallback) in Vercel env vars
 // =============================================================
 
 import { getRenovationKnowledge } from '../knowledge/renovation.js';
@@ -112,6 +112,48 @@ RESPONSE RULES:
 - Never invent prices or specs not in the knowledge base`;
 }
 
+// ── API keys (primary → fallback) ────────────────────────────
+function getGroqApiKeys() {
+    return [process.env.GROQ_API_KEY, process.env.GROQ_API_KEY_2]
+        .filter(key => typeof key === 'string' && key.trim() !== '');
+}
+
+const RETRYABLE_STATUSES = new Set([401, 429, 500, 502, 503]);
+
+async function callGroq(apiKey, requestBody) {
+    const groqRes = await fetch(GROQ_URL, {
+        method:  'POST',
+        headers: {
+            'Content-Type':  'application/json',
+            'Authorization': `Bearer ${apiKey}`
+        },
+        body: JSON.stringify(requestBody)
+    });
+
+    if (!groqRes.ok) {
+        const errText = await groqRes.text();
+        const err = new Error(`Groq API error: ${groqRes.status}`);
+        err.status = groqRes.status;
+        err.details = errText;
+        throw err;
+    }
+
+    const data = await groqRes.json();
+
+    if (
+        !data.choices            ||
+        !data.choices[0]         ||
+        !data.choices[0].message ||
+        !data.choices[0].message.content
+    ) {
+        const err = new Error('Invalid response from Groq');
+        err.status = 502;
+        throw err;
+    }
+
+    return data.choices[0].message.content;
+}
+
 // ── Convert history to OpenAI/Groq format ────────────────────
 function toGroqHistory(history) {
     if (!Array.isArray(history)) return [];
@@ -139,11 +181,11 @@ export default async function handler(req, res) {
         return res.status(405).json({ error: 'Method not allowed' });
     }
 
-    // ── Read API key ──────────────────────────────────────────
-    const apiKey = process.env.GROQ_API_KEY;
+    // ── Read API keys ─────────────────────────────────────────
+    const apiKeys = getGroqApiKeys();
 
-    if (!apiKey) {
-        console.error('GROQ_API_KEY is not set in Vercel environment variables');
+    if (apiKeys.length === 0) {
+        console.error('No Groq API keys set — configure GROQ_API_KEY in Vercel');
         return res.status(500).json({
             error: 'Server configuration error — API key missing'
         });
@@ -171,41 +213,34 @@ export default async function handler(req, res) {
             stream:      false
         };
 
-        const groqRes = await fetch(GROQ_URL, {
-            method:  'POST',
-            headers: {
-                'Content-Type':  'application/json',
-                'Authorization': `Bearer ${apiKey}`
-            },
-            body: JSON.stringify(requestBody)
-        });
+        let reply = null;
+        let lastError = null;
 
-        if (!groqRes.ok) {
-            const errText = await groqRes.text();
-            console.error('Groq API error:', groqRes.status, errText);
-            return res.status(502).json({
-                error:   'Groq API error',
-                details: errText
-            });
+        for (let i = 0; i < apiKeys.length; i++) {
+            const keyLabel = i === 0 ? 'primary' : 'fallback';
+            try {
+                reply = await callGroq(apiKeys[i], requestBody);
+                break;
+            } catch (err) {
+                lastError = err;
+                const canRetry = i < apiKeys.length - 1 &&
+                    (RETRYABLE_STATUSES.has(err.status) || !err.status);
+
+                console.error(`Groq ${keyLabel} key failed:`, err.status || 'network', err.details || err.message);
+
+                if (!canRetry) break;
+                console.log(`Retrying with ${i + 1 === apiKeys.length - 1 ? 'fallback' : 'next'} Groq API key...`);
+            }
         }
 
-        const data = await groqRes.json();
-
-        if (
-            !data.choices            ||
-            !data.choices[0]         ||
-            !data.choices[0].message ||
-            !data.choices[0].message.content
-        ) {
-            console.error('Unexpected Groq response structure:', JSON.stringify(data));
-            return res.status(502).json({ error: 'Invalid response from Groq' });
+        if (reply) {
+            return res.status(200).json({ success: true, message: reply });
         }
 
-        const reply = data.choices[0].message.content;
-
-        return res.status(200).json({
-            success: true,
-            message: reply
+        const status = lastError?.status && lastError.status >= 400 ? lastError.status : 502;
+        return res.status(status === 429 ? 502 : status).json({
+            error:   'Groq API error',
+            details: lastError?.details || lastError?.message || 'All API keys failed'
         });
 
     } catch (err) {
