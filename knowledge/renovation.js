@@ -45,8 +45,9 @@ RENOVATION CONSULTATION LOCATIONS:
 
 PRICING GUIDANCE:
 - Do not quote fixed renovation prices — scope and materials vary
-- Direct customers to WhatsApp +60 12-475 4568 for a personalised quote
 - Site Visit Fee: RM 500 - RM 1,000 (charged to assess the property and provide accurate quotation)
+- QUOTATION PROCESS: Customers must proceed with the 3D design service first. Once the designer completes the 3D drawing and design using our design software, the detailed quotation will be generated from the design. This ensures the quotation is accurate and customized to the customer's specific needs and design choices.
+- Direct customers to WhatsApp +60 12-475 4568 for a personalised quote and to start the design process
 
 RENOVATION PROCESS:
 Step 1: Pay design fee, share floor plan, and fill in required information.
