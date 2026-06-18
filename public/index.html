@@ -26,7 +26,7 @@
     bottom: 28px; right: 28px;
     width: 58px; height: 58px;
     border-radius: 50%;
-    background: #1A1A2E;
+    background: #000000;
     border: none; cursor: pointer;
     display: flex; align-items: center; justify-content: center;
     box-shadow: 0 4px 24px rgba(0,0,0,0.30);
@@ -51,7 +51,7 @@
   .unread {
     position: absolute; top: 2px; right: 2px;
     width: 14px; height: 14px; border-radius: 50%;
-    background: #C9A96E; border: 2.5px solid transparent;
+    background: #000000; border: 2.5px solid transparent;
     display: none;
   }
   .unread.show { display: block; }
@@ -83,18 +83,18 @@
 
   /* ── HEADER ── */
   .header {
-    background: #1A1A2E; padding: 12px 14px;
+    background: #000000; padding: 12px 14px;
     display: flex; align-items: center; gap: 10px; flex-shrink: 0;
   }
   .hav {
-    width: 38px; height: 38px; border-radius: 50%; background: #C9A96E;
+    width: 38px; height: 38px; border-radius: 50%; background: #ffffff;
     display: flex; align-items: center; justify-content: center;
-    font-size: 15px; font-weight: 700; color: #1A1A2E;
+    font-size: 15px; font-weight: 700; color: #000000;
     flex-shrink: 0; user-select: none;
   }
   .hinfo { flex: 1; min-width: 0; }
   .hname { font-size: 14px; font-weight: 600; color: #fff; }
-  .hsub  { font-size: 10.5px; color: #9E9EBF; margin-top: 2px; }
+  .hsub  { font-size: 10.5px; color: #999999; margin-top: 2px; }
   .hright { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
   .odot {
     width: 8px; height: 8px; border-radius: 50%; background: #4CAF50;
@@ -111,12 +111,12 @@
   /* ── MESSAGES ── */
   .msgs {
     flex: 1; overflow-y: auto; overflow-x: hidden;
-    padding: 13px 11px 8px; background: #F5F5F7;
+    padding: 13px 11px 8px; background: #f5f5f5;
     display: flex; flex-direction: column; gap: 10px;
     scroll-behavior: smooth;
   }
   .msgs::-webkit-scrollbar { width: 3px; }
-  .msgs::-webkit-scrollbar-thumb { background: #D1D1D6; border-radius: 2px; }
+  .msgs::-webkit-scrollbar-thumb { background: #cccccc; border-radius: 2px; }
 
   .mrow {
     display: flex; align-items: flex-end; gap: 7px;
@@ -130,9 +130,9 @@
   }
 
   .mav {
-    width: 24px; height: 24px; border-radius: 50%; background: #C9A96E;
+    width: 24px; height: 24px; border-radius: 50%; background: #ffffff;
     display: flex; align-items: center; justify-content: center;
-    font-size: 9px; font-weight: 700; color: #1A1A2E;
+    font-size: 9px; font-weight: 700; color: #000000;
     flex-shrink: 0; margin-bottom: 2px; user-select: none;
   }
 
@@ -159,28 +159,28 @@
   }
   
   .bubble.bot {
-    background: #fff; color: #1A1A2E;
+    background: #f0f0f0; color: #000000;
     border-radius: 3px 14px 14px 14px;
-    border: 0.5px solid #E5E5EA;
+    border: 0.5px solid #dddddd;
     box-shadow: 0 1px 4px rgba(0,0,0,0.07);
   }
   .bubble.user {
-    background: #1A1A2E; color: #fff;
+    background: #000000; color: #fff;
     border-radius: 14px 3px 14px 14px;
   }
-  .mtime { font-size: 10px; color: #AEAEB2; margin-top: 3px; padding: 0 3px; }
+  .mtime { font-size: 10px; color: #999999; margin-top: 3px; padding: 0 3px; }
 
   /* ── TYPING ── */
   .trow { display: flex; align-items: flex-end; gap: 7px; }
   .tbbl {
-    background: #fff; border: 0.5px solid #E5E5EA;
+    background: #f0f0f0; border: 0.5px solid #dddddd;
     border-radius: 3px 14px 14px 14px;
     padding: 11px 14px; display: flex; gap: 5px; align-items: center;
     box-shadow: 0 1px 4px rgba(0,0,0,0.07);
   }
   .tdot {
     width: 6px; height: 6px; border-radius: 50%;
-    background: #C9A96E; opacity: 0.4;
+    background: #000000; opacity: 0.4;
     animation: td 1.3s ease infinite;
   }
   .tdot:nth-child(2) { animation-delay: 0.18s; }
@@ -192,49 +192,49 @@
 
   /* ── QUICK ACTIONS ── */
   .qbar {
-    background: #fff; border-top: 1px solid #E5E5EA;
+    background: #fff; border-top: 1px solid #dddddd;
     padding: 7px 9px; display: flex; gap: 5px;
     flex-wrap: wrap; flex-shrink: 0;
   }
   .qbtn {
     font-size: 11px; padding: 5px 9px; border-radius: 20px;
-    border: 0.5px solid #AFA9EC; background: #F0EEF8; color: #3C3489;
+    border: 0.5px solid #000000; background: #f0f0f0; color: #000000;
     cursor: pointer; white-space: nowrap; font-family: inherit;
     line-height: 1.2; transition: background 0.15s, color 0.15s, transform 0.1s;
   }
-  .qbtn:hover:not(:disabled) { background: #3C3489; color: #fff; border-color: #3C3489; }
+  .qbtn:hover:not(:disabled) { background: #000000; color: #fff; border-color: #000000; }
   .qbtn:active:not(:disabled) { transform: scale(0.96); }
   .qbtn:disabled { opacity: 0.45; cursor: not-allowed; }
 
   /* ── INPUT BAR ── */
   .ibar {
-    background: #fff; border-top: 1px solid #E5E5EA;
+    background: #fff; border-top: 1px solid #dddddd;
     padding: 9px 10px; display: flex; align-items: flex-end;
     gap: 8px; flex-shrink: 0;
   }
   .minput {
-    flex: 1; background: #F5F5F7; border: 1px solid #E5E5EA;
+    flex: 1; background: #f5f5f5; border: 1px solid #dddddd;
     border-radius: 20px; padding: 8px 14px; font-size: 13px;
-    font-family: inherit; color: #1A1A2E; outline: none;
+    font-family: inherit; color: #000000; outline: none;
     resize: none; line-height: 1.45; max-height: 72px;
     overflow-y: auto; transition: border-color 0.15s, background 0.15s;
     scrollbar-width: none;
   }
   .minput::-webkit-scrollbar { display: none; }
-  .minput::placeholder { color: #AEAEB2; }
-  .minput:focus { border-color: #C9A96E; background: #fff; }
+  .minput::placeholder { color: #999999; }
+  .minput:focus { border-color: #000000; background: #fff; }
   .minput:disabled { opacity: 0.5; }
 
   .sbtn {
-    width: 36px; height: 36px; border-radius: 50%; background: #1A1A2E;
+    width: 36px; height: 36px; border-radius: 50%; background: #000000;
     border: none; cursor: pointer; display: flex; align-items: center;
     justify-content: center; flex-shrink: 0;
     transition: background 0.15s, transform 0.1s;
   }
-  .sbtn:hover:not(:disabled) { background: #2D2D4E; }
+  .sbtn:hover:not(:disabled) { background: #333333; }
   .sbtn:active:not(:disabled) { transform: scale(0.91); }
   .sbtn:disabled { opacity: 0.4; cursor: not-allowed; }
-  .sbtn svg { width: 15px; height: 15px; fill: #C9A96E; }
+  .sbtn svg { width: 15px; height: 15px; fill: #ffffff; }
 
   /* ── MOBILE ── */
   @media (max-width: 480px) {
@@ -249,10 +249,10 @@
   <span class="unread" id="badge"></span>
   <svg class="l-icon show" id="ico-open" viewBox="0 0 24 24" fill="none">
     <path d="M4 4h16a1 1 0 011 1v10a1 1 0 01-1 1H8l-4 4V5a1 1 0 011-1z"
-          stroke="#C9A96E" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+          stroke="#ffffff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
   </svg>
   <svg class="l-icon hide" id="ico-close" viewBox="0 0 24 24" fill="none">
-    <path d="M18 6L6 18M6 6l12 12" stroke="#C9A96E" stroke-width="2" stroke-linecap="round"/>
+    <path d="M18 6L6 18M6 6l12 12" stroke="#ffffff" stroke-width="2" stroke-linecap="round"/>
   </svg>
 </button>
 
@@ -362,6 +362,7 @@ function doSend() {
   if (!txt) return;
   minput.value = '';
   minput.style.height = 'auto';
+  minput.focus();
   process(txt);
 }
 
