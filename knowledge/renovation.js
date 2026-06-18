@@ -71,6 +71,7 @@ Step 7: Handover, inspection, and pay final 5%.
 
 3D DRAWING & INTERIOR DESIGN (ID) SERVICES:
 - Price is valid for 14 days and may be subject to change after this period.
+- The design fee is refundable after the renovation is confirmed and the customer has paid the first deposit.
 - RM 1,500: Spaces below 1,500 sqft
 - RM 2,000: 1,501 sqft to 2,000 sqft
 - RM 3,500: 2,001 sqft to 2,500 sqft
