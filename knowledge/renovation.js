@@ -43,6 +43,42 @@ PRICING GUIDANCE:
 - Direct customers to WhatsApp +60 12-568 4568 for a personalised quote
 - Free consultation available at showrooms
 
+RENOVATION PROCESS:
+Step 1: Pay design fee, share floor plan, and fill in required information.
+- Information to provide: family members (adults/children, age/gender), style preferences, lifestyle habits, special requirements, floor plan, and reference images the customer likes from online or other sources.
+
+Step 2: Submit information to designer for design draft and revisions.
+- Designer creates the initial design draft based on the customer's information.
+- Designer revises the design until the client is satisfied.
+
+Step 3: Confirm design and quotation.
+- Once the design is approved by the client, MOCOF provides a detailed quotation.
+- Client may request adjustments.
+
+Step 4: Confirm project and pay 20% deposit.
+- Arrange site visit to measure the property and collect real dimensions.
+- After the renovation is confirmed and the customer has paid the first deposit, the design fee is refundable.
+
+Step 5: Site measurement, place order, and pay 30%.
+- Production and shipping timeline: production about 3 weeks, shipping about 3 weeks, and Malaysia customs clearance 10-14 working days.
+- Force majeure events such as natural disasters, war, or similar events may extend delivery time.
+
+Step 6: Goods arrive at warehouse and customer pays 45%.
+- Goods have arrived at MOCOF's warehouse and are being prepared for delivery to the customer's new home / before installation.
+
+Step 7: Handover, inspection, and pay final 5%.
+- Installation is completed, then the client inspects and confirms everything is correct.
+
+3D DRAWING & INTERIOR DESIGN (ID) SERVICES:
+- Price is valid for 14 days and may be subject to change after this period.
+- RM 1,500: Spaces below 1,500 sqft
+- RM 2,000: 1,501 sqft to 2,000 sqft
+- RM 3,500: 2,001 sqft to 2,500 sqft
+- RM 6,000: 2,501 sqft to 3,000 sqft
+- RM 8,000: 3,001 sqft to 3,500 sqft
+- RM 10,000: 3,501 sqft to 4,000 sqft
+- RM 12,000: Spaces above 4,001 sqft
+
 LEAD TIME:
 - Custom wall beds: 4–16 weeks from purchase
 - Modular furniture: 4–8 weeks
