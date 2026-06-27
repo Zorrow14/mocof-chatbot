@@ -43,6 +43,7 @@ MURANO MODELS:
 GIOCO SERIES — Horizontal Wall Bed (Low ceiling below 2.4m or study rooms)
 - Best for: Low ceilings, study rooms, narrow wall clearances
 - European steel base slates, compressed air mechanism
+- Includes: 10-inch DP Tech Double Posture Coil Mattress
 
 GIOCO MODELS:
 
