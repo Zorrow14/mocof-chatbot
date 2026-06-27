@@ -5,7 +5,7 @@ WALL BED PRODUCTS — PRICING & DIMENSIONS:
 MURANO SERIES — Vertical Wall Bed (Standard ceiling 2.4m and above)
 - Mechanism: European compressed air piston — soft open, soft close
 - Load capacity: 200kg | Up to 10,000 open/close cycles
-- Includes: 10-inch DP Tech Double Posture Coil Mattress (10-year warranty)
+- Includes: 10-inch DP Tech Double Posture Coil Mattress
 - Best for: Standard ceilings (2.4m+), living rooms, guest rooms
 
 MURANO MODELS:
