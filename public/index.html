@@ -431,7 +431,7 @@ function addBot(txt) {
   row.innerHTML =
     '<div class="mav" aria-hidden="true">M</div>' +
     '<div class="mcol">' +
-      '<div class="bubble bot">' + esc(txt) + '</div>' +
+      '<div class="bubble bot">' + fmt(txt) + '</div>' +
       '<div class="mtime">Moco · ' + now() + '</div>' +
     '</div>';
   msgs.appendChild(row);
@@ -470,6 +470,14 @@ function esc(t) {
   return t
     .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
     .replace(/"/g,'&quot;').replace(/'/g,'&#39;').replace(/\n/g,'<br>');
+}
+
+/* Escape first, then render basic Markdown (bold / italic) safely */
+function fmt(t) {
+  return esc(t)
+    .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
+    .replace(/__([^_]+)__/g, '<strong>$1</strong>')
+    .replace(/(^|[^*])\*([^*\n]+)\*(?!\*)/g, '$1<em>$2</em>');
 }
 </script>
 </body>
