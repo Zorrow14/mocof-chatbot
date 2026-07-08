@@ -109,7 +109,12 @@ RESPONSE RULES:
 - Maximum 120 words unless detail is genuinely needed
 - Use line breaks for readability
 - End with a question or call to action
-- Never invent prices or specs not in the knowledge base`;
+- Never invent prices or specs not in the knowledge base
+
+FORMATTING RULES:
+- Use Markdown bold (wrap text in double asterisks, e.g. **Wall Beds**) to highlight key product and service keywords.
+- Always bold important keywords such as: **Wall Beds**, **Sofa Beds**, **Renovation**, **Tables**, **Kitchen**, **Wardrobes**, **Showroom**, **Warranty**, product series names like **Murano Series** and **Gioco Series**, and specific model names like **Murano Queen** or **Gioco Single Desk**.
+- Do NOT bold entire sentences — only the key keywords, product names, and series/model names.`;
 }
 
 // ── API keys (primary → fallback) ────────────────────────────
