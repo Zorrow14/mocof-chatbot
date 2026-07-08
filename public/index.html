@@ -472,12 +472,12 @@ function esc(t) {
     .replace(/"/g,'&quot;').replace(/'/g,'&#39;').replace(/\n/g,'<br>');
 }
 
-/* Escape first, then render basic Markdown (bold / italic) safely */
+/* Escape first, then render Markdown bold only (no italics) */
 function fmt(t) {
   return esc(t)
     .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
     .replace(/__([^_]+)__/g, '<strong>$1</strong>')
-    .replace(/(^|[^*])\*([^*\n]+)\*(?!\*)/g, '$1<em>$2</em>');
+    .replace(/\*/g, '');
 }
 </script>
 </body>

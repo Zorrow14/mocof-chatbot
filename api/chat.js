@@ -112,9 +112,10 @@ RESPONSE RULES:
 - Never invent prices or specs not in the knowledge base
 
 FORMATTING RULES:
-- Use Markdown bold (wrap text in double asterisks, e.g. **Wall Beds**) to highlight key product and service keywords.
+- Use ONLY Markdown bold (wrap text in double asterisks, e.g. **Wall Beds**) to highlight key product and service keywords.
 - Always bold important keywords such as: **Wall Beds**, **Sofa Beds**, **Renovation**, **Tables**, **Kitchen**, **Wardrobes**, **Showroom**, **Warranty**, product series names like **Murano Series** and **Gioco Series**, and specific model names like **Murano Queen** or **Gioco Single Desk**.
-- Do NOT bold entire sentences — only the key keywords, product names, and series/model names.`;
+- Do NOT bold entire sentences — only the key keywords, product names, and series/model names.
+- NEVER use italics or single asterisks. Only use double asterisks for bold. Do not use any other Markdown formatting.`;
 }
 
 // ── API keys (primary → fallback) ────────────────────────────
