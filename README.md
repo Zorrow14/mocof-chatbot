@@ -102,7 +102,3 @@ Design notes: keep the knowledge strings factual and avoid adding instructions t
 - System prompt and knowledge content control the assistant heavily. When updating prompt text, validate behavior with a few test queries.
 
 ---
-
-If you'd like, I can also:
-- Add example tests that hit `/api/chat` with mocked Groq responses.
-- Create a small `widget.html` route (referenced by `vercel.json`) if you want a standalone widget file.
