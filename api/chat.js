@@ -34,7 +34,7 @@ function getRelevantKnowledge(message) {
     if (msg.match(/kitchen|cabinet|cabinetry|cooking|pantry/))
         knowledge += getKitchenKnowledge();
 
-    if (msg.match(/wardrobe|closet|clothes|storage|walk-in/))
+    if (msg.match(/wardrobe|closet|clothes|storage|walk-in|cabinet/))
         knowledge += getWardrobeKnowledge();
 
     if (msg.match(/showroom|visit|location|address|trx|maison|appointment|open|hour/))
@@ -87,6 +87,8 @@ PRODUCT RECOMMENDATION RULES:
 - Low ceiling below 2.4m → Gioco Series
 - Standard ceiling 2.4m and above → Murano Series
 - Always ask ceiling height AND room purpose before recommending wall beds
+
+- NEVER combine or "pair" two named model variants of the SAME wall bed unit together (e.g. Murano Queen + Murano Queen Shelves — pick one bed configuration). This does NOT apply to surround cabinetry: a customer CAN add custom surround cabinetry (side + overhead cabinets) around any wall bed configuration — that is a separate structure, not a bed variant. When a customer asks about adding cabinets/storage around a wall bed, use the WALL BED SURROUND CABINETRY info and ask for the total wall length before recommending. If unsure whether two items can coexist, say so plainly and suggest confirming with a showroom consultant rather than guessing.
 
 RENOVATION LEAD COLLECTION:
 If customer mentions renovation, interior design, house design, condo renovation, or kitchen renovation — collect these ONE AT A TIME conversationally:

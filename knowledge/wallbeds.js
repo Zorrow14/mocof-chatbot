@@ -10,6 +10,8 @@ MURANO SERIES — Vertical Wall Bed (Standard ceiling 2.4m and above)
 
 MURANO MODELS:
 
+⚠️ IMPORTANT — Murano Queen, Murano Queen Sofa, Murano Queen Desk, and Murano Queen Shelves are FOUR ALTERNATE CONFIGURATIONS of the same queen-size wall bed unit. A customer chooses ONE configuration only — they are mutually exclusive and CANNOT be combined, paired, or added on top of each other (e.g. you cannot "add" Murano Queen Shelves to a Murano Queen or a Murano Queen Sofa — Shelves IS the configuration, not an accessory). Murano Single and Murano King are only available in the plain configuration below (no Sofa/Desk/Shelves variant exists for those sizes). If a customer wants a SEPARATE free-standing cabinet or wardrobe next to the wall bed (not built into it), that is a different product — refer to the WARDROBE & STORAGE SOLUTIONS knowledge base instead, never to these Murano variants.
+
 * Murano Queen
   - Price: RM 19,102.22 (retail) | RM 14,371.55 (sale)
   - Width: 167cm | Height: 209.5cm | Depth Closed: 45cm | Depth Opened: 220cm
@@ -21,31 +23,31 @@ MURANO MODELS:
   - Features: Washable headboard, compressed air mechanism, safety point lock
 
 * Murano Single
-  - Price: RM 17,232.22 (retail) | RM 13,062.55 (sale)
+  - Price: RM 17,232.22 (retail) | RM 12,062.55 (sale)
   - Width: 106cm | Height: 209.5cm | Depth Closed: 45cm | Depth Opened: 220cm
   - Features: Washable headboard, compressed air mechanism, safety point lock
 
-* Murano Queen Sofa (MOST POPULAR for living rooms)
+* Murano Queen Sofa (MOST POPULAR for living rooms) — alternate configuration, not an add-on to Murano Queen
   - Price: RM 33,854.44 (retail) | RM 23,698.11 (sale)
   - Width: 167cm | Height: 209.5cm | Depth Closed: 127cm | Depth Opened: 220cm
   - Features: 3-seater sofa hides under bed when opened, Sunbrella Performance Fabric, 5cm or 15cm armrests
 
-* Murano Queen Desk
+* Murano Queen Desk — alternate configuration, not an add-on to Murano Queen
   - Price: RM 24,687.78 (retail) | RM 17,281.45 (sale)
   - Dimensions: Custom based on room width
   - Features: Integrated front-facing study desk, pivots flat under bed — no need to clear items
 
-* Murano Queen Shelves
+* Murano Queen Shelves — alternate configuration, not an add-on to Murano Queen
   - Price: RM 22,976.67 (retail) | RM 16,083.67 (sale)
   - Dimensions: Custom based on room width
-  - Features: Integrated decorative and book shelving, customizable EDL laminate doors
+  - Features: Integrated decorative and book shelving, customizable EDL laminate doors, built directly into the bed frame itself (not a separate cabinet)
 
 GIOCO SERIES — Horizontal Wall Bed (Low ceiling below 2.4m or study rooms)
 - Best for: Low ceilings, study rooms, narrow wall clearances
 - European steel base slates, compressed air mechanism
 - Includes: 10-inch DP Tech Double Posture Coil Mattress
 
-GIOCO MODELS:
+GIOCO MODELS (each model below is a SEPARATE, independently purchasable product — unlike the Murano Queen variants, these are not configurations of one shared unit):
 
 * Gioco Single Desk (MOST POPULAR for study rooms)
   - Price: RM 25,054.44 (retail) | RM 17,538.11 (sale)
@@ -56,9 +58,10 @@ GIOCO MODELS:
   - Price: RM 20,654.45 (retail) | RM 15,458.12 (sale)
   - Width: 204.6cm | Height: 170cm | Depth Closed: 45cm | Depth Opened: 181cm
   - Features: Horizontal fold, compressed air mechanism, soft open/close
+  - Note: listed on the website storefront together with Gioco Single as one product page — confirm current price with WhatsApp before quoting if in doubt
 
 * Gioco Single
-  - Price: RM 18,698.89 (retail) | RM 14,089.22 (sale)
+  - Price: RM 18,698.89 (retail) | RM 13,089.22 (sale)
   - Width: 204.6cm | Height: 105cm | Depth Closed: 45cm | Depth Opened: 110cm
   - Features: Horizontal fold, ideal for very compact rooms and low ceilings
 
