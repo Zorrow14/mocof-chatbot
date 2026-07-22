@@ -5,14 +5,15 @@
 // API Keys: GROQ_API_KEY (primary), GROQ_API_KEY_2 (fallback) in Vercel env vars
 // =============================================================
 
-import { getRenovationKnowledge } from '../knowledge/renovation.js';
-import { getWallBedKnowledge }    from '../knowledge/wallbeds.js';
-import { getSofaBedKnowledge }    from '../knowledge/sofabeds.js';
-import { getTableKnowledge }      from '../knowledge/tables.js';
-import { getKitchenKnowledge }    from '../knowledge/kitchen.js';
-import { getWardrobeKnowledge }   from '../knowledge/wardrobes.js';
-import { getShowroomKnowledge }   from '../knowledge/showroom.js';
-import { getWarrantyKnowledge }   from '../knowledge/warranty.js';
+import { getRenovationKnowledge }    from '../knowledge/renovation.js';
+import { getWallBedKnowledge }       from '../knowledge/wallbeds.js';
+import { getSofaBedKnowledge }       from '../knowledge/sofabeds.js';
+import { getTableKnowledge }         from '../knowledge/tables.js';
+import { getKitchenKnowledge }       from '../knowledge/kitchen.js';
+import { getWardrobeKnowledge }      from '../knowledge/wardrobes.js';
+import { getShowroomKnowledge }      from '../knowledge/showroom.js';
+import { getWarrantyKnowledge }      from '../knowledge/warranty.js';
+import { getBasicFurnitureKnowledge } from '../knowledge/basicfurniture.js';
 
 const GROQ_URL   = 'https://api.groq.com/openai/v1/chat/completions';
 // NOTE: llama-3.1-8b-instant is deprecated by Groq — shutdown date 08/16/26.
@@ -21,8 +22,16 @@ const GROQ_URL   = 'https://api.groq.com/openai/v1/chat/completions';
 const GROQ_MODEL = 'openai/gpt-oss-20b';
 
 // ── Detect which knowledge bases are relevant ─────────────────
-function getRelevantKnowledge(message) {
-    const msg = message.toLowerCase();
+// IMPORTANT: this looks at the last few turns of history too, not just the
+// current message. Otherwise a natural follow-up like "what is X?" (where X
+// was named by the bot one turn ago) loses all context, because the message
+// itself may contain none of the trigger keywords for that knowledge file —
+// causing the bot to wrongly claim a real product doesn't exist.
+function getRelevantKnowledge(message, history) {
+    const recentHistoryText = Array.isArray(history)
+        ? history.slice(-4).map(m => (m && m.content) ? m.content : '').join(' ')
+        : '';
+    const msg = `${recentHistoryText} ${message}`.toLowerCase();
     let knowledge = '';
 
     if (msg.match(/wall bed|wallbed|murphy bed|fold|gioco|murano|single bed|queen bed|ceiling/))
@@ -49,6 +58,9 @@ function getRelevantKnowledge(message) {
     if (msg.match(/renovation|interior|design|house|condo|budget|layout|floor plan/))
         knowledge += getRenovationKnowledge();
 
+    if (msg.match(/sofa|couch|coffee table|dining|recliner|bed frame|basic furniture|cheaper|budget|alternative|arto|erga|euclio|forge|anta|arvo|hara|lyco|theta|zenith|crorix|flare|dream|colony|celestia|zenon|marlie|nebula|neva|perch|solaris|orbit|casa|pluto|moria|cozelle/))
+        knowledge += getBasicFurnitureKnowledge();
+
     // Fallback — if nothing matched, send a light default
     if (!knowledge) {
         knowledge += getWallBedKnowledge();
@@ -59,7 +71,7 @@ function getRelevantKnowledge(message) {
 }
 
 // ── Build system prompt ───────────────────────────────────────
-function buildSystemPrompt(message) {
+function buildSystemPrompt(message, history) {
     return `You are Moco, a friendly and professional AI consultant for MOCOF — a premium Malaysian furniture and interior design brand specialising in space-saving solutions.
 
 PERSONALITY:
@@ -82,7 +94,7 @@ PRICING RULES:
 - NEVER fabricate prices not in the knowledge base
 
 YOUR KNOWLEDGE BASE:
-${getRelevantKnowledge(message)}
+${getRelevantKnowledge(message, history)}
 
 PRODUCT RECOMMENDATION RULES:
 - Study room → Gioco Single with Desk (RM 17,538.11 sale)
@@ -90,6 +102,7 @@ PRODUCT RECOMMENDATION RULES:
 - Low ceiling below 2.4m → Gioco Series
 - Standard ceiling 2.4m and above → Murano Series
 - Always ask ceiling height AND room purpose before recommending wall beds
+- If the integrated Sofa variant is out of budget, recommend the BUDGET WALL BED + SEPARATE SOFA COMBO from the knowledge base (a plain wall bed plus a standalone Basic Sofa) instead of inventing a discount — this is a real, cheaper, two-product combo
 
 - NEVER combine or "pair" two named model variants of the SAME wall bed unit together (e.g. Murano Queen + Murano Queen Shelves — pick one bed configuration). This does NOT apply to surround cabinetry: a customer CAN add custom surround cabinetry (side + overhead cabinets) around any wall bed configuration — that is a separate structure, not a bed variant. When a customer asks about adding cabinets/storage around a wall bed, treat it as surround cabinetry by default — confirm it's possible and ask for the total wall length, without explaining the bed-variant mutual-exclusivity rule. Only mention that variants can't be combined if the customer specifically names two bed variants together (e.g. "can I get Queen Sofa and Queen Shelves") or is otherwise actually trying to combine bed configurations — never as a general disclaimer.
 
@@ -105,6 +118,7 @@ If customer mentions renovation, interior design, house design, condo renovation
 8. Existing obstacles
 9. Target completion date
 After all collected → summarise and say: "Thank you! Please reach out to our design consultant on WhatsApp at +60 12-568 4568 to schedule your free consultation and share these details."
+- If the customer only wants to buy a single product (e.g. "I just wanna buy a wall bed") rather than a full renovation, do NOT run this lead collection flow — just help them with the product directly.
 
 SHOWROOM APPOINTMENT / SHOW UNIT VIEWING:
 - For TRX Core Residence or Maison MOCOF TRX viewings → always say: "This is by appointment only — please contact us on WhatsApp at +60 12-568 4568 to book your visit."
@@ -124,8 +138,9 @@ FORMATTING RULES:
 
 CRITICAL — GROUNDING (this section overrides anything above if there's ever a conflict):
 - Every product name, price, and spec you state must appear character-for-character in the KNOWLEDGE BASE section above. Never invent a product by combining two real names — for example there is no "Gioco Queen Sofa"; the real Gioco lineup is ONLY: Gioco Single, Gioco Queen, Gioco Single Desk, Gioco Bunk Bed. The real Murano lineup is ONLY: Murano Single, Murano Queen, Murano King, Murano Queen Sofa, Murano Queen Desk, Murano Queen Shelves.
-- If a customer asks for something cheaper or an alternative, only offer a REAL lower-priced option that is already in the knowledge base above (e.g. Murano Single or Gioco Single are the lowest-priced wall beds). Never invent a new "budget" variant or a new price.
-- If you don't have the exact product, price, or spec the customer is asking about, say so plainly and offer to connect them with the team on WhatsApp (+60 12-568 4568) instead of guessing or approximating.`;
+- If a customer asks for something cheaper or an alternative, only offer a REAL lower-priced option that is already in the knowledge base above (e.g. Murano Single or Gioco Single are the lowest-priced wall beds; a Basic Sofa is the lowest-cost way to add separate seating). Never invent a new "budget" variant or a new price.
+- Always state prices exactly as written in the knowledge base, including the cents (e.g. "RM 12,062.55", not "RM 12,062" or "around RM 12,000") — rounding or approximating a real price is not allowed.
+- If a customer asks about a specific named product (e.g. "what is X?"), first check the ENTIRE knowledge base above carefully before answering — do not say a product doesn't exist unless you have checked thoroughly. If it genuinely isn't there, say you don't have that specific detail on hand rather than firmly declaring it doesn't exist, and offer to confirm via WhatsApp (+60 12-568 4568) — a product you can't find in your own context may still be real.`;
 }
 
 // ── API keys (primary → fallback) ────────────────────────────
@@ -182,21 +197,26 @@ function toGroqHistory(history) {
 }
 
 // ── Price guardrail: catch hallucinated RM figures before they reach the customer ──
-// Builds a master whitelist of EVERY real price across the whole business (not just
-// whatever got routed into this turn's prompt), so genuinely valid prices from earlier
-// in the conversation never get false-flagged just because this message didn't retrigger
-// that knowledge category.
+// Builds a master list of EVERY real price across the whole business (not just
+// whatever got routed into this turn's prompt), so genuinely valid prices from
+// earlier in the conversation never get false-flagged just because this message
+// didn't retrigger that knowledge category.
+//
+// Uses a small tolerance (not exact-cent matching) because the model may
+// naturally round a real price in casual phrasing (e.g. "RM 12,062" instead
+// of "RM 12,062.55") — that's not hallucination, it's rounding, and treating
+// it as hallucination throws away a perfectly correct answer.
 function extractAmounts(text) {
-    const amounts = new Set();
+    const amounts = [];
     const matches = text.matchAll(/RM\s?([\d,]+(?:\.\d{1,2})?)/gi);
     for (const m of matches) {
-        const cents = Math.round(parseFloat(m[1].replace(/,/g, '')) * 100);
-        if (!isNaN(cents)) amounts.add(cents);
+        const val = parseFloat(m[1].replace(/,/g, ''));
+        if (!isNaN(val)) amounts.push(val);
     }
     return amounts;
 }
 
-const MASTER_PRICE_WHITELIST = extractAmounts([
+const MASTER_PRICE_LIST = extractAmounts([
     getWallBedKnowledge(),
     getSofaBedKnowledge(),
     getTableKnowledge(),
@@ -204,8 +224,21 @@ const MASTER_PRICE_WHITELIST = extractAmounts([
     getWardrobeKnowledge(),
     getShowroomKnowledge(),
     getWarrantyKnowledge(),
-    getRenovationKnowledge()
+    getRenovationKnowledge(),
+    getBasicFurnitureKnowledge()
 ].join('\n'));
+
+const PRICE_TOLERANCE = 2.00; // RM — forgives cent-level rounding, not real mistakes
+
+function isKnownAmount(val, extraAllowed) {
+    for (const known of MASTER_PRICE_LIST) {
+        if (Math.abs(known - val) <= PRICE_TOLERANCE) return true;
+    }
+    for (const known of extraAllowed) {
+        if (Math.abs(known - val) <= PRICE_TOLERANCE) return true;
+    }
+    return false;
+}
 
 // Returns an array of suspicious RM figures found in the reply that don't exist
 // anywhere in the real catalog AND weren't stated by the customer themselves
@@ -214,10 +247,8 @@ function findHallucinatedPrices(reply, userMessage) {
     const replyAmounts = extractAmounts(reply);
     const userAmounts  = extractAmounts(userMessage || '');
     const suspicious = [];
-    for (const cents of replyAmounts) {
-        if (!MASTER_PRICE_WHITELIST.has(cents) && !userAmounts.has(cents)) {
-            suspicious.push((cents / 100).toFixed(2));
-        }
+    for (const val of replyAmounts) {
+        if (!isKnownAmount(val, userAmounts)) suspicious.push(val.toFixed(2));
     }
     return suspicious;
 }
@@ -262,7 +293,7 @@ export default async function handler(req, res) {
         const requestBody = {
             model: GROQ_MODEL,
             messages: [
-                { role: 'system',    content: buildSystemPrompt(message) },
+                { role: 'system',    content: buildSystemPrompt(message, history) },
                 ...toGroqHistory(history || []),
                 { role: 'user',      content: message.trim() }
             ],
