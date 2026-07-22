@@ -15,7 +15,10 @@ import { getShowroomKnowledge }   from '../knowledge/showroom.js';
 import { getWarrantyKnowledge }   from '../knowledge/warranty.js';
 
 const GROQ_URL   = 'https://api.groq.com/openai/v1/chat/completions';
-const GROQ_MODEL = 'llama-3.1-8b-instant';
+// NOTE: llama-3.1-8b-instant is deprecated by Groq — shutdown date 08/16/26.
+// Migrated to Groq's recommended replacement, openai/gpt-oss-20b, which is
+// also a stronger reasoning model (helps with grounding/hallucination too).
+const GROQ_MODEL = 'openai/gpt-oss-20b';
 
 // ── Detect which knowledge bases are relevant ─────────────────
 function getRelevantKnowledge(message) {
@@ -88,10 +91,7 @@ PRODUCT RECOMMENDATION RULES:
 - Standard ceiling 2.4m and above → Murano Series
 - Always ask ceiling height AND room purpose before recommending wall beds
 
-- INTERNAL RULE, NOT A CUSTOMER-FACING DISCLAIMER: two named model variants of the SAME wall bed unit (e.g. Murano Queen + Murano Queen Shelves) can never be combined — this governs what YOU recommend, it is not something to read out loud.
-- Only mention this exclusivity rule if the customer explicitly asks to combine, pair, or add one Murano/Gioco variant on top of another (e.g. "can I add Shelves to my Queen Sofa?"). Otherwise never bring it up — including when the topic is surround cabinetry, pricing, or anything else.
-- Surround cabinetry is a SEPARATE structure, not a bed variant, and is not covered by the rule above: a customer CAN add custom surround cabinetry (side + overhead cabinets) around any wall bed configuration. When a customer asks about adding cabinets/storage around a wall bed, just answer using the WALL BED SURROUND CABINETRY info and ask for the total wall width — no caveat needed.
-- If unsure whether two specific items can coexist, say so plainly and suggest confirming with a showroom consultant rather than guessing.
+- NEVER combine or "pair" two named model variants of the SAME wall bed unit together (e.g. Murano Queen + Murano Queen Shelves — pick one bed configuration). This does NOT apply to surround cabinetry: a customer CAN add custom surround cabinetry (side + overhead cabinets) around any wall bed configuration — that is a separate structure, not a bed variant. When a customer asks about adding cabinets/storage around a wall bed, treat it as surround cabinetry by default — confirm it's possible and ask for the total wall length, without explaining the bed-variant mutual-exclusivity rule. Only mention that variants can't be combined if the customer specifically names two bed variants together (e.g. "can I get Queen Sofa and Queen Shelves") or is otherwise actually trying to combine bed configurations — never as a general disclaimer.
 
 RENOVATION LEAD COLLECTION:
 If customer mentions renovation, interior design, house design, condo renovation, or kitchen renovation — collect these ONE AT A TIME conversationally:
@@ -120,7 +120,12 @@ FORMATTING RULES:
 - Use ONLY Markdown bold (wrap text in double asterisks, e.g. **Wall Beds**) to highlight key product and service keywords.
 - Always bold important keywords such as: **Wall Beds**, **Sofa Beds**, **Renovation**, **Tables**, **Kitchen**, **Wardrobes**, **Showroom**, **Warranty**, product series names like **Murano Series** and **Gioco Series**, and specific model names like **Murano Queen** or **Gioco Single Desk**.
 - Do NOT bold entire sentences — only the key keywords, product names, and series/model names.
-- NEVER use italics or single asterisks. Only use double asterisks for bold. Do not use any other Markdown formatting.`;
+- NEVER use italics or single asterisks. Only use double asterisks for bold. Do not use any other Markdown formatting.
+
+CRITICAL — GROUNDING (this section overrides anything above if there's ever a conflict):
+- Every product name, price, and spec you state must appear character-for-character in the KNOWLEDGE BASE section above. Never invent a product by combining two real names — for example there is no "Gioco Queen Sofa"; the real Gioco lineup is ONLY: Gioco Single, Gioco Queen, Gioco Single Desk, Gioco Bunk Bed. The real Murano lineup is ONLY: Murano Single, Murano Queen, Murano King, Murano Queen Sofa, Murano Queen Desk, Murano Queen Shelves.
+- If a customer asks for something cheaper or an alternative, only offer a REAL lower-priced option that is already in the knowledge base above (e.g. Murano Single or Gioco Single are the lowest-priced wall beds). Never invent a new "budget" variant or a new price.
+- If you don't have the exact product, price, or spec the customer is asking about, say so plainly and offer to connect them with the team on WhatsApp (+60 12-568 4568) instead of guessing or approximating.`;
 }
 
 // ── API keys (primary → fallback) ────────────────────────────
@@ -176,6 +181,49 @@ function toGroqHistory(history) {
         }));
 }
 
+// ── Price guardrail: catch hallucinated RM figures before they reach the customer ──
+// Builds a master whitelist of EVERY real price across the whole business (not just
+// whatever got routed into this turn's prompt), so genuinely valid prices from earlier
+// in the conversation never get false-flagged just because this message didn't retrigger
+// that knowledge category.
+function extractAmounts(text) {
+    const amounts = new Set();
+    const matches = text.matchAll(/RM\s?([\d,]+(?:\.\d{1,2})?)/gi);
+    for (const m of matches) {
+        const cents = Math.round(parseFloat(m[1].replace(/,/g, '')) * 100);
+        if (!isNaN(cents)) amounts.add(cents);
+    }
+    return amounts;
+}
+
+const MASTER_PRICE_WHITELIST = extractAmounts([
+    getWallBedKnowledge(),
+    getSofaBedKnowledge(),
+    getTableKnowledge(),
+    getKitchenKnowledge(),
+    getWardrobeKnowledge(),
+    getShowroomKnowledge(),
+    getWarrantyKnowledge(),
+    getRenovationKnowledge()
+].join('\n'));
+
+// Returns an array of suspicious RM figures found in the reply that don't exist
+// anywhere in the real catalog AND weren't stated by the customer themselves
+// (so echoing back a customer's own stated budget is never treated as hallucination).
+function findHallucinatedPrices(reply, userMessage) {
+    const replyAmounts = extractAmounts(reply);
+    const userAmounts  = extractAmounts(userMessage || '');
+    const suspicious = [];
+    for (const cents of replyAmounts) {
+        if (!MASTER_PRICE_WHITELIST.has(cents) && !userAmounts.has(cents)) {
+            suspicious.push((cents / 100).toFixed(2));
+        }
+    }
+    return suspicious;
+}
+
+const SAFE_FALLBACK_REPLY = "I want to make sure I give you accurate pricing rather than guess — let me connect you with our team directly. Please reach out on **WhatsApp** at +60 12-568 4568 and they'll confirm the exact options and prices for you. Is there anything else I can help with in the meantime?";
+
 // ── Main handler ──────────────────────────────────────────────
 export default async function handler(req, res) {
 
@@ -219,7 +267,8 @@ export default async function handler(req, res) {
                 { role: 'user',      content: message.trim() }
             ],
             temperature: 0.7,
-            max_tokens:  256,
+            max_completion_tokens: 800, // gpt-oss reasoning tokens count against this budget too
+            reasoning_effort: 'low',    // keep it fast/cheap for a real-time chat widget
             top_p:       0.95,
             stream:      false
         };
@@ -245,6 +294,11 @@ export default async function handler(req, res) {
         }
 
         if (reply) {
+            const badPrices = findHallucinatedPrices(reply, message);
+            if (badPrices.length > 0) {
+                console.error('Blocked reply containing unrecognized price(s):', badPrices.join(', '), '| original reply:', reply);
+                reply = SAFE_FALLBACK_REPLY;
+            }
             return res.status(200).json({ success: true, message: reply });
         }
 
