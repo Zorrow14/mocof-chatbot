@@ -132,11 +132,17 @@ SURROUND CABINETRY ESTIMATES:
   surround cabinetry by default — confirm it's possible, then walk through the formula
   in the KNOWLEDGE BASE section above, asking for wall height, wall bed width, and
   (only if the wall is over 9ft tall) total wall width — one question at a time.
-- Calculate the estimate yourself using that formula and show the line-item breakdown,
-  not just a total. Always label it as an estimate confirmed via WhatsApp/site survey.
+- If a "PRE-CALCULATED CABINETRY ESTIMATE" block appears below, the server has already
+  computed it from this customer's own measurements — present those EXACT figures as
+  the breakdown. Do NOT recalculate, re-round, or adjust them yourself.
+- If no such block appears, you don't have complete measurements yet — keep asking for
+  whichever of wall height / wall bed width / total wall width is still missing. Do not
+  guess or estimate a total from memory before all required measurements are collected.
+- Always label it as an estimate confirmed via WhatsApp/site survey.
 - This is the ONE place where you may state a price that isn't literally written in the
   knowledge base — because it's a live calculation from the customer's own measurements,
   not an invented number. Do not use this as license to estimate prices anywhere else.
+${buildCabinetryEstimateBlock(message, history)}
 
 SHOWROOM APPOINTMENT / SHOW UNIT VIEWING:
 - For TRX Core Residence or Maison MOCOF TRX viewings → always say: "This is by appointment only — please contact us on WhatsApp at +60 12-568 4568 to book your visit."
@@ -266,8 +272,14 @@ function isKnownAmount(val, extraAllowed) {
 // same formula server-side, so the guardrail can recognize the resulting
 // total (and its line items) as legitimate instead of flagging them.
 //
+// IMPORTANT: the system prompt asks for height / bed width / total width ONE
+// AT A TIME, so customers typically reply with a bare number ("9ft", "5.5 ft")
+// with no context words at all. This function is turn-aware: for a bare
+// number with no self-contained context, it looks at what the ASSISTANT'S
+// PRECEDING message asked about and attributes the number accordingly.
+//
 // This is intentionally best-effort text parsing, not a robust NLU layer —
-// if extraction fails, we simply fall back to the normal strict guard for
+// if extraction still fails, we fall back to the normal strict guard for
 // that message (safe default: no extra amounts get allowed).
 function extractFtValue(text, patterns) {
     for (const p of patterns) {
@@ -280,41 +292,64 @@ function extractFtValue(text, patterns) {
     return null;
 }
 
-function extractCabinetryDimensions(text) {
-    const t = text.toLowerCase();
+const BARE_FT_PATTERN = /(\d+(?:\.\d+)?)\s*(?:ft|feet|')/;
 
-    const heightFt = extractFtValue(t, [
-        /wall\s*height[^.\d]{0,15}(\d+(?:\.\d+)?)\s*(?:ft|feet|')/,
-        /(\d+(?:\.\d+)?)\s*(?:ft|feet|')\s*(?:tall|high)\b/,
-        /height\s*(?:is|of)?\s*(\d+(?:\.\d+)?)\s*(?:ft|feet|')/
-    ]);
+function extractCabinetryDimensions(history, message) {
+    const priorTurns = Array.isArray(history) ? history.slice(-10) : [];
+    const turns = [...priorTurns, { role: 'user', content: message }];
 
-    const bedWidthFt = extractFtValue(t, [
-        /(?:wall ?bed|bed)\s*(?:width|is)\s*(?:of\s*)?(\d+(?:\.\d+)?)\s*(?:ft|feet|')/,
-        /(\d+(?:\.\d+)?)\s*(?:ft|feet|')\s*wide\s*(?:wall ?)?bed/
-    ]);
+    let heightFt = null, bedWidthFt = null, totalWidthFt = null;
 
-    const totalWidthFt = extractFtValue(t, [
-        /total\s*wall\s*width[^.\d]{0,10}(\d+(?:\.\d+)?)\s*(?:ft|feet|')/,
-        /wall\s*(?:is|of)\s*(\d+(?:\.\d+)?)\s*(?:ft|feet|')\s*wide/,
-        /(\d+(?:\.\d+)?)\s*(?:ft|feet|')\s*(?:wide|width)\s*wall/
-    ]);
+    for (let i = 0; i < turns.length; i++) {
+        const turn = turns[i];
+        if (!turn || turn.role !== 'user' || !turn.content) continue;
+
+        const userText = (turn.content || '').toLowerCase();
+        const prevAssistant = (i > 0 && turns[i - 1] && turns[i - 1].role === 'assistant')
+            ? (turns[i - 1].content || '').toLowerCase()
+            : '';
+
+        // 1) Self-contained matches (the number's own message names what it is) always win.
+        const heightSelf = extractFtValue(userText, [
+            /wall\s*height[^.\d]{0,15}(\d+(?:\.\d+)?)\s*(?:ft|feet|')/,
+            /(\d+(?:\.\d+)?)\s*(?:ft|feet|')\s*(?:tall|high)\b/,
+            /height\s*(?:is|of)?\s*(\d+(?:\.\d+)?)\s*(?:ft|feet|')/
+        ]);
+        const bedSelf = extractFtValue(userText, [
+            /(?:wall ?bed|bed)\s*(?:width|is)?\s*(?:of\s*)?(\d+(?:\.\d+)?)\s*(?:ft|feet|')/,
+            /(\d+(?:\.\d+)?)\s*(?:ft|feet|')\s*wide\s*(?:wall ?)?bed/
+        ]);
+        const totalSelf = extractFtValue(userText, [
+            /total\s*wall\s*width[^.\d]{0,10}(\d+(?:\.\d+)?)\s*(?:ft|feet|')/,
+            /wall\s*(?:is|of)\s*(\d+(?:\.\d+)?)\s*(?:ft|feet|')\s*wide/,
+            /(\d+(?:\.\d+)?)\s*(?:ft|feet|')\s*(?:wide|width)\s*wall/
+        ]);
+
+        if (heightSelf)      { heightFt = heightSelf; continue; }
+        if (bedSelf)          { bedWidthFt = bedSelf; continue; }
+        if (totalSelf)        { totalWidthFt = totalSelf; continue; }
+
+        // 2) Bare number with no context of its own — infer from what the bot just asked.
+        const bareMatch = userText.match(BARE_FT_PATTERN);
+        if (!bareMatch) continue;
+        const bareVal = parseFloat(bareMatch[1]);
+        if (isNaN(bareVal)) continue;
+
+        if (/total\s*(?:wall\s*)?width/.test(prevAssistant)) totalWidthFt = bareVal;
+        else if (/wall ?bed|width of the (wall ?)?bed|bed width/.test(prevAssistant)) bedWidthFt = bareVal;
+        else if (/height/.test(prevAssistant)) heightFt = bareVal;
+    }
 
     return { heightFt, bedWidthFt, totalWidthFt };
 }
 
-// Scans the last few turns + current message for cabinetry measurements and,
-// if enough are present, computes the same total the model should be stating
-// — those numbers become allowed even though they're not in the static catalog.
-function computeCabinetryAllowedAmounts(message, history) {
+// Runs extraction + the real formula once; both the guard-allowlist and the
+// system-prompt pre-calculated block (below) read from this single source
+// so they can never disagree with each other.
+function getCabinetryEstimateFromContext(message, history) {
     try {
-        const recentHistoryText = Array.isArray(history)
-            ? history.slice(-8).map(m => (m && m.content) ? m.content : '').join(' ')
-            : '';
-        const fullText = `${recentHistoryText} ${message}`;
-        const { heightFt, bedWidthFt, totalWidthFt } = extractCabinetryDimensions(fullText);
-
-        if (!heightFt || !bedWidthFt) return [];
+        const { heightFt, bedWidthFt, totalWidthFt } = extractCabinetryDimensions(history, message);
+        if (!heightFt || !bedWidthFt) return null;
 
         const result = calculateCabinetPrice({
             wallHeightFt: heightFt,
@@ -322,11 +357,45 @@ function computeCabinetryAllowedAmounts(message, history) {
             totalWallWidthFt: totalWidthFt ?? undefined
         });
 
-        return [result.sideCostPerSide, result.sideCostTotal, result.topCost, result.exceedingCost, result.total]
-            .filter(v => v > 0);
+        return { heightFt, bedWidthFt, totalWidthFt, ...result };
     } catch {
-        return []; // missing/invalid measurements — stay strict, don't allow anything extra
+        return null; // e.g. height > 9ft but total wall width not collected yet
     }
+}
+
+// Scans the last few turns + current message for cabinetry measurements and,
+// if enough are present, computes the same total the model should be stating
+// — those numbers become allowed even though they're not in the static catalog.
+function computeCabinetryAllowedAmounts(message, history) {
+    const est = getCabinetryEstimateFromContext(message, history);
+    if (!est) return [];
+    return [est.sideCostPerSide, est.sideCostTotal, est.topCost, est.exceedingCost, est.total]
+        .filter(v => v > 0);
+}
+
+function formatRM(n) {
+    return `RM ${n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+}
+
+// Builds a ready-made, already-correct breakdown to inject into the system
+// prompt when we have enough measurements. The model is told to relay these
+// exact figures rather than compute them itself — this removes reliance on
+// the model's arithmetic entirely, not just the after-the-fact guard check.
+function buildCabinetryEstimateBlock(message, history) {
+    const est = getCabinetryEstimateFromContext(message, history);
+    if (!est) return '';
+
+    const lines = [
+        '',
+        'PRE-CALCULATED CABINETRY ESTIMATE FOR THIS CUSTOMER (already computed from their measurements — use these EXACT figures, do not recalculate or round differently):',
+        `- Side cabinets: ${formatRM(est.sideCostPerSide)} per side × ${est.sides} side(s) = ${formatRM(est.sideCostTotal)} (height used: ${est.sideHeightUsedFt}ft${est.exceedsStandard ? ', capped at the 9ft standard' : ''})`,
+        `- Overhead cabinet (${est.bedWidthFt}ft wide): ${formatRM(est.topCost)}`
+    ];
+    if (est.exceedsStandard) {
+        lines.push(`- Excess-height surcharge (wall is ${est.heightFt}ft, over the 9ft standard; full wall width ${est.totalWidthFt}ft): ${formatRM(est.exceedingCost)}`);
+    }
+    lines.push(`- TOTAL ESTIMATE: ${formatRM(est.total)}`);
+    return lines.join('\n');
 }
 
 // Returns an array of suspicious RM figures found in the reply that don't exist
