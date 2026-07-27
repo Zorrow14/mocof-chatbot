@@ -14,6 +14,7 @@ import { getWardrobeKnowledge }      from '../knowledge/wardrobes.js';
 import { getShowroomKnowledge }      from '../knowledge/showroom.js';
 import { getWarrantyKnowledge }      from '../knowledge/warranty.js';
 import { getBasicFurnitureKnowledge } from '../knowledge/basicfurniture.js';
+import { getCabinetryKnowledge, calculateCabinetPrice } from '../knowledge/cabinetry.js';
 
 const GROQ_URL   = 'https://api.groq.com/openai/v1/chat/completions';
 // NOTE: llama-3.1-8b-instant is deprecated by Groq — shutdown date 08/16/26.
@@ -60,6 +61,12 @@ function getRelevantKnowledge(message, history) {
 
     if (msg.match(/sofa|couch|coffee table|dining|recliner|bed frame|basic furniture|cheaper|budget|alternative|arto|erga|euclio|forge|anta|arvo|hara|lyco|theta|zenith|crorix|flare|dream|colony|celestia|zenon|marlie|nebula|neva|perch|solaris|orbit|casa|pluto|moria|cozelle/))
         knowledge += getBasicFurnitureKnowledge();
+
+    // Surround cabinetry — side/overhead cabinets built AROUND a wall bed.
+    // Distinct from the general "cabinet" keyword in the wardrobe/kitchen
+    // triggers above, which cover free-standing kitchen/wardrobe cabinetry.
+    if (msg.match(/side cabinet|overhead cabinet|surround cabinet|cabinet(ry)? around|cabinet(s|ry)? (on|beside|next to|for) (the |my )?(wall ?bed|bed)|wall ?bed.*cabinet|extra cabinet|estimate.*cabinet|cabinet.*(price|cost|quote|estimate)/))
+        knowledge += getCabinetryKnowledge();
 
     // Fallback — if nothing matched, send a light default
     if (!knowledge) {
@@ -120,6 +127,17 @@ If customer mentions renovation, interior design, house design, condo renovation
 After all collected → summarise and say: "Thank you! Please reach out to our design consultant on WhatsApp at +60 12-568 4568 to schedule your free consultation and share these details."
 - If the customer only wants to buy a single product (e.g. "I just wanna buy a wall bed") rather than a full renovation, do NOT run this lead collection flow — just help them with the product directly.
 
+SURROUND CABINETRY ESTIMATES:
+- When a customer asks about adding cabinets/storage around a wall bed, treat it as
+  surround cabinetry by default — confirm it's possible, then walk through the formula
+  in the KNOWLEDGE BASE section above, asking for wall height, wall bed width, and
+  (only if the wall is over 9ft tall) total wall width — one question at a time.
+- Calculate the estimate yourself using that formula and show the line-item breakdown,
+  not just a total. Always label it as an estimate confirmed via WhatsApp/site survey.
+- This is the ONE place where you may state a price that isn't literally written in the
+  knowledge base — because it's a live calculation from the customer's own measurements,
+  not an invented number. Do not use this as license to estimate prices anywhere else.
+
 SHOWROOM APPOINTMENT / SHOW UNIT VIEWING:
 - For TRX Core Residence or Maison MOCOF TRX viewings → always say: "This is by appointment only — please contact us on WhatsApp at +60 12-568 4568 to book your visit."
 - For general showroom visits → share the relevant showroom details and suggest WhatsApp for appointments
@@ -137,7 +155,7 @@ FORMATTING RULES:
 - NEVER use italics or single asterisks. Only use double asterisks for bold. Do not use any other Markdown formatting.
 
 CRITICAL — GROUNDING (this section overrides anything above if there's ever a conflict):
-- Every product name, price, and spec you state must appear character-for-character in the KNOWLEDGE BASE section above. Never invent a product by combining two real names — for example there is no "Gioco Queen Sofa"; the real Gioco lineup is ONLY: Gioco Single, Gioco Queen, Gioco Single Desk, Gioco Bunk Bed. The real Murano lineup is ONLY: Murano Single, Murano Queen, Murano King, Murano Queen Sofa, Murano Queen Desk, Murano Queen Shelves.
+- Every product name, price, and spec you state must appear character-for-character in the KNOWLEDGE BASE section above — EXCEPT a surround cabinetry estimate you calculate live from the formula and the customer's own stated measurements (see SURROUND CABINETRY ESTIMATES above). That is the only case where a number not literally in the knowledge base is allowed. Never invent a product by combining two real names — for example there is no "Gioco Queen Sofa"; the real Gioco lineup is ONLY: Gioco Single, Gioco Queen, Gioco Single Desk, Gioco Bunk Bed. The real Murano lineup is ONLY: Murano Single, Murano Queen, Murano King, Murano Queen Sofa, Murano Queen Desk, Murano Queen Shelves.
 - If a customer asks for something cheaper or an alternative, only offer a REAL lower-priced option that is already in the knowledge base above (e.g. Murano Single or Gioco Single are the lowest-priced wall beds; a Basic Sofa is the lowest-cost way to add separate seating). Never invent a new "budget" variant or a new price.
 - Always state prices exactly as written in the knowledge base, including the cents (e.g. "RM 12,062.55", not "RM 12,062" or "around RM 12,000") — rounding or approximating a real price is not allowed.
 - If a customer asks about a specific named product (e.g. "what is X?"), first check the ENTIRE knowledge base above carefully before answering — do not say a product doesn't exist unless you have checked thoroughly. If it genuinely isn't there, say you don't have that specific detail on hand rather than firmly declaring it doesn't exist, and offer to confirm via WhatsApp (+60 12-568 4568) — a product you can't find in your own context may still be real.`;
@@ -225,7 +243,8 @@ const MASTER_PRICE_LIST = extractAmounts([
     getShowroomKnowledge(),
     getWarrantyKnowledge(),
     getRenovationKnowledge(),
-    getBasicFurnitureKnowledge()
+    getBasicFurnitureKnowledge(),
+    getCabinetryKnowledge() // includes the RM1,350 / RM800 unit rates + worked examples
 ].join('\n'));
 
 const PRICE_TOLERANCE = 2.00; // RM — forgives cent-level rounding, not real mistakes
@@ -240,15 +259,87 @@ function isKnownAmount(val, extraAllowed) {
     return false;
 }
 
+// ── Cabinetry estimates are the one case where the model states a price that
+// isn't a literal catalog number — it's calculated live from measurements the
+// customer gave earlier in the conversation. Best-effort regex extraction of
+// those measurements from the recent conversation, then re-running the exact
+// same formula server-side, so the guardrail can recognize the resulting
+// total (and its line items) as legitimate instead of flagging them.
+//
+// This is intentionally best-effort text parsing, not a robust NLU layer —
+// if extraction fails, we simply fall back to the normal strict guard for
+// that message (safe default: no extra amounts get allowed).
+function extractFtValue(text, patterns) {
+    for (const p of patterns) {
+        const m = text.match(p);
+        if (m) {
+            const val = parseFloat(m[1]);
+            if (!isNaN(val)) return val;
+        }
+    }
+    return null;
+}
+
+function extractCabinetryDimensions(text) {
+    const t = text.toLowerCase();
+
+    const heightFt = extractFtValue(t, [
+        /wall\s*height[^.\d]{0,15}(\d+(?:\.\d+)?)\s*(?:ft|feet|')/,
+        /(\d+(?:\.\d+)?)\s*(?:ft|feet|')\s*(?:tall|high)\b/,
+        /height\s*(?:is|of)?\s*(\d+(?:\.\d+)?)\s*(?:ft|feet|')/
+    ]);
+
+    const bedWidthFt = extractFtValue(t, [
+        /(?:wall ?bed|bed)\s*(?:width|is)\s*(?:of\s*)?(\d+(?:\.\d+)?)\s*(?:ft|feet|')/,
+        /(\d+(?:\.\d+)?)\s*(?:ft|feet|')\s*wide\s*(?:wall ?)?bed/
+    ]);
+
+    const totalWidthFt = extractFtValue(t, [
+        /total\s*wall\s*width[^.\d]{0,10}(\d+(?:\.\d+)?)\s*(?:ft|feet|')/,
+        /wall\s*(?:is|of)\s*(\d+(?:\.\d+)?)\s*(?:ft|feet|')\s*wide/,
+        /(\d+(?:\.\d+)?)\s*(?:ft|feet|')\s*(?:wide|width)\s*wall/
+    ]);
+
+    return { heightFt, bedWidthFt, totalWidthFt };
+}
+
+// Scans the last few turns + current message for cabinetry measurements and,
+// if enough are present, computes the same total the model should be stating
+// — those numbers become allowed even though they're not in the static catalog.
+function computeCabinetryAllowedAmounts(message, history) {
+    try {
+        const recentHistoryText = Array.isArray(history)
+            ? history.slice(-8).map(m => (m && m.content) ? m.content : '').join(' ')
+            : '';
+        const fullText = `${recentHistoryText} ${message}`;
+        const { heightFt, bedWidthFt, totalWidthFt } = extractCabinetryDimensions(fullText);
+
+        if (!heightFt || !bedWidthFt) return [];
+
+        const result = calculateCabinetPrice({
+            wallHeightFt: heightFt,
+            wallBedWidthFt: bedWidthFt,
+            totalWallWidthFt: totalWidthFt ?? undefined
+        });
+
+        return [result.sideCostPerSide, result.sideCostTotal, result.topCost, result.exceedingCost, result.total]
+            .filter(v => v > 0);
+    } catch {
+        return []; // missing/invalid measurements — stay strict, don't allow anything extra
+    }
+}
+
 // Returns an array of suspicious RM figures found in the reply that don't exist
 // anywhere in the real catalog AND weren't stated by the customer themselves
-// (so echoing back a customer's own stated budget is never treated as hallucination).
-function findHallucinatedPrices(reply, userMessage) {
+// (so echoing back a customer's own stated budget is never treated as hallucination),
+// AND aren't a live cabinetry-estimate figure computed from their own measurements.
+function findHallucinatedPrices(reply, userMessage, extraKnownAmounts = []) {
     const replyAmounts = extractAmounts(reply);
     const userAmounts  = extractAmounts(userMessage || '');
+    const allowedFromContext = [...userAmounts, ...extraKnownAmounts];
     const suspicious = [];
     for (const val of replyAmounts) {
-        if (!isKnownAmount(val, userAmounts)) suspicious.push(val.toFixed(2));
+        if (!isKnownAmount(val, allowedFromContext)) suspicious.push(val.toFixed(2));
     }
     return suspicious;
 }
@@ -325,7 +416,8 @@ export default async function handler(req, res) {
         }
 
         if (reply) {
-            const badPrices = findHallucinatedPrices(reply, message);
+            const cabinetryAllowedAmounts = computeCabinetryAllowedAmounts(message, history);
+            const badPrices = findHallucinatedPrices(reply, message, cabinetryAllowedAmounts);
             if (badPrices.length > 0) {
                 console.error('Blocked reply containing unrecognized price(s):', badPrices.join(', '), '| original reply:', reply);
                 reply = SAFE_FALLBACK_REPLY;

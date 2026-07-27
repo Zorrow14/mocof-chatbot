@@ -2,7 +2,7 @@ export function getWardrobeKnowledge() {
     return `
 WARDROBE & STORAGE SOLUTIONS — PRICING & DIMENSIONS:
 
-Note: these are STANDALONE, free-standing wardrobe/storage units for a room in general. If the customer is asking about cabinets built AROUND a wall bed specifically (flanking + overhead cabinetry framing a Murano or Gioco unit), that is WALL BED SURROUND CABINETRY — covered in the wall bed knowledge base, not here.
+Note: these are STANDALONE, free-standing wardrobe/storage units for a room in general. If the customer wants cabinetry built around or attached to a wall bed itself (not standalone), that's a custom carpentry item — treat it as personalised pricing (see PRICING RULES) rather than matching it to one of these standalone SKUs.
 
 MOCOF BASIC MODULAR WARDROBES (Ready-made, 4–8 week lead time, RM200 delivery in KL):
 
