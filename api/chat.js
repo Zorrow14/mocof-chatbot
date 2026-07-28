@@ -18,9 +18,9 @@ import { getCabinetryKnowledge, calculateCabinetPrice } from '../knowledge/cabin
 
 const GROQ_URL   = 'https://api.groq.com/openai/v1/chat/completions';
 // NOTE: llama-3.1-8b-instant is deprecated by Groq — shutdown date 08/16/26.
-// Migrated to Groq's recommended replacement, openai/gpt-oss-20b, which is
+// Migrated to Groq's recommended replacement, openai/gpt-oss-120b, which is
 // also a stronger reasoning model (helps with grounding/hallucination too).
-const GROQ_MODEL = 'openai/gpt-oss-20b';
+const GROQ_MODEL = 'openai/gpt-oss-120b';
 
 // ── Detect which knowledge bases are relevant ─────────────────
 // IMPORTANT: this looks at the last few turns of history too, not just the
