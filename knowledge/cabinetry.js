@@ -94,6 +94,14 @@ WHAT TO ASK FOR (one at a time, conversationally, like the renovation flow):
    Murano Queen/Sofa/Desk/Shelves ≈ 167cm ≈ 5.5ft, Murano King ≈ 198cm ≈ 6.5ft,
    Murano Single ≈ 106cm ≈ 3.5ft, Gioco Single/Desk ≈ 204.6cm ≈ 6.7ft)
 3. Total width of the wall, in feet — ONLY needed if the wall height is above 9ft
+4. If it sounds like the bed might be against a corner or another fixture, ask whether
+   both sides are open or only one — this changes the side-cabinet cost
+
+When asking, prefer phrasing that includes the word "height" for question 1 and the
+word "bed" for question 2 and "total width" (or "entire/whole wall") for question 3 —
+e.g. "What's the total height of the wall, in feet?" / "What's the width of the wall
+bed, in feet?" / "What's the total width of the wall, in feet?" This keeps your
+questions easy to track turn-to-turn, even in casual conversational phrasing.
 
 FORMULA:
 - Side cabinets (one on each side of the wall bed, 2 sides by default — ask if only

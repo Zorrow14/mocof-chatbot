@@ -293,12 +293,13 @@ function extractFtValue(text, patterns) {
 }
 
 const BARE_FT_PATTERN = /(\d+(?:\.\d+)?)\s*(?:ft|feet|')/;
+const SINGLE_SIDE_PATTERN = /\bone side\b|\bonly\s*1\s*side\b|\bsingle side\b|\bcorner\b/;
 
 function extractCabinetryDimensions(history, message) {
     const priorTurns = Array.isArray(history) ? history.slice(-10) : [];
     const turns = [...priorTurns, { role: 'user', content: message }];
 
-    let heightFt = null, bedWidthFt = null, totalWidthFt = null;
+    let heightFt = null, bedWidthFt = null, totalWidthFt = null, sidesOverride = null;
 
     for (let i = 0; i < turns.length; i++) {
         const turn = turns[i];
@@ -309,38 +310,52 @@ function extractCabinetryDimensions(history, message) {
             ? (turns[i - 1].content || '').toLowerCase()
             : '';
 
-        // 1) Self-contained matches (the number's own message names what it is) always win.
+        if (SINGLE_SIDE_PATTERN.test(userText)) sidesOverride = 1;
+
+        // 1) Self-contained matches (the number's own message names what it is).
+        // Check ALL three (not just the first hit) — a customer can answer more
+        // than one measurement in a single message, e.g. "wall height is 9ft and
+        // the wall bed is 5.5ft wide" should capture both, not just the first.
         const heightSelf = extractFtValue(userText, [
             /wall\s*height[^.\d]{0,15}(\d+(?:\.\d+)?)\s*(?:ft|feet|')/,
             /(\d+(?:\.\d+)?)\s*(?:ft|feet|')\s*(?:tall|high)\b/,
-            /height\s*(?:is|of)?\s*(\d+(?:\.\d+)?)\s*(?:ft|feet|')/
+            /height\s*(?:is|of)?\s*(\d+(?:\.\d+)?)\s*(?:ft|feet|')/,
+            /(\d+(?:\.\d+)?)\s*(?:ft|feet|')\s*(?:in\s+)?height\b/
         ]);
         const bedSelf = extractFtValue(userText, [
-            /(?:wall ?bed|bed)\s*(?:width|is)?\s*(?:of\s*)?(\d+(?:\.\d+)?)\s*(?:ft|feet|')/,
+            /(?:wall ?bed|bed)[^.\d]{0,15}(\d+(?:\.\d+)?)\s*(?:ft|feet|')/,
             /(\d+(?:\.\d+)?)\s*(?:ft|feet|')\s*wide\s*(?:wall ?)?bed/
         ]);
         const totalSelf = extractFtValue(userText, [
             /total\s*wall\s*width[^.\d]{0,10}(\d+(?:\.\d+)?)\s*(?:ft|feet|')/,
+            /(?:entire|whole|full|overall)\s*wall[^.\d]{0,10}(\d+(?:\.\d+)?)\s*(?:ft|feet|')/,
             /wall\s*(?:is|of)\s*(\d+(?:\.\d+)?)\s*(?:ft|feet|')\s*wide/,
             /(\d+(?:\.\d+)?)\s*(?:ft|feet|')\s*(?:wide|width)\s*wall/
         ]);
 
-        if (heightSelf)      { heightFt = heightSelf; continue; }
-        if (bedSelf)          { bedWidthFt = bedSelf; continue; }
-        if (totalSelf)        { totalWidthFt = totalSelf; continue; }
+        let matchedSelfContained = false;
+        if (heightSelf)   { heightFt = heightSelf; matchedSelfContained = true; }
+        if (bedSelf)      { bedWidthFt = bedSelf; matchedSelfContained = true; }
+        if (totalSelf)    { totalWidthFt = totalSelf; matchedSelfContained = true; }
+        if (matchedSelfContained) continue;
 
-        // 2) Bare number with no context of its own — infer from what the bot just asked.
+        // 2) Bare number with no context of its own — infer from what the bot just
+        // asked. Keyword coverage is intentionally broader here than a literal
+        // "height"/"total width" match, because the model paraphrases its own
+        // questions (e.g. "How tall is the wall?" instead of "What is the wall
+        // height?") and this has to survive that variation, not just the exact
+        // wording used in the knowledge base / system prompt.
         const bareMatch = userText.match(BARE_FT_PATTERN);
         if (!bareMatch) continue;
         const bareVal = parseFloat(bareMatch[1]);
         if (isNaN(bareVal)) continue;
 
-        if (/total\s*(?:wall\s*)?width/.test(prevAssistant)) totalWidthFt = bareVal;
-        else if (/wall ?bed|width of the (wall ?)?bed|bed width/.test(prevAssistant)) bedWidthFt = bareVal;
-        else if (/height/.test(prevAssistant)) heightFt = bareVal;
+        if (/total\s*(?:wall\s*)?width|(?:entire|whole|full|overall)\s*wall/.test(prevAssistant)) totalWidthFt = bareVal;
+        else if (/\bbed\b.*\b(?:width|wide)\b|\b(?:width|wide)\b.*\bbed\b/.test(prevAssistant)) bedWidthFt = bareVal;
+        else if (/height|\btall\b|\bhigh\b/.test(prevAssistant)) heightFt = bareVal;
     }
 
-    return { heightFt, bedWidthFt, totalWidthFt };
+    return { heightFt, bedWidthFt, totalWidthFt, sides: sidesOverride ?? 2 };
 }
 
 // Runs extraction + the real formula once; both the guard-allowlist and the
@@ -348,13 +363,14 @@ function extractCabinetryDimensions(history, message) {
 // so they can never disagree with each other.
 function getCabinetryEstimateFromContext(message, history) {
     try {
-        const { heightFt, bedWidthFt, totalWidthFt } = extractCabinetryDimensions(history, message);
+        const { heightFt, bedWidthFt, totalWidthFt, sides } = extractCabinetryDimensions(history, message);
         if (!heightFt || !bedWidthFt) return null;
 
         const result = calculateCabinetPrice({
             wallHeightFt: heightFt,
             wallBedWidthFt: bedWidthFt,
-            totalWallWidthFt: totalWidthFt ?? undefined
+            totalWallWidthFt: totalWidthFt ?? undefined,
+            sides
         });
 
         return { heightFt, bedWidthFt, totalWidthFt, ...result };
