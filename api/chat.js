@@ -28,53 +28,62 @@ const GROQ_MODEL = 'openai/gpt-oss-120b';
 // was named by the bot one turn ago) loses all context, because the message
 // itself may contain none of the trigger keywords for that knowledge file —
 // causing the bot to wrongly claim a real product doesn't exist.
+// Ordered by priority when a message matches more than MAX_KNOWLEDGE_MODULES
+// categories at once — cabinetry comes first because it's needed for accurate
+// live price quoting, wall beds second as the flagship product line.
+const KNOWLEDGE_MODULES = [
+    {
+        key: 'cabinetry',
+        // Surround cabinetry — side/overhead cabinets built AROUND a wall bed.
+        // Distinct from the general "cabinet" keyword in wardrobe/kitchen below,
+        // which covers free-standing kitchen/wardrobe cabinetry.
+        test: /side cabinet|overhead cabinet|surround cabinet|cabinet(ry)? around|cabinet(s|ry)? (on|beside|next to|for) (the |my )?(wall ?bed|bed)|wall ?bed.*cabinet|extra cabinet|estimate.*cabinet|cabinet.*(price|cost|quote|estimate)/,
+        fn: getCabinetryKnowledge
+    },
+    { key: 'wallbed',    test: /wall bed|wallbed|murphy bed|fold|gioco|murano|single bed|queen bed|ceiling/, fn: getWallBedKnowledge },
+    { key: 'sofabed',    test: /sofa bed|sofabed|sofa|living room|couch/, fn: getSofaBedKnowledge },
+    { key: 'table',      test: /table|dining|desk|study/, fn: getTableKnowledge },
+    { key: 'kitchen',    test: /kitchen|cabinet|cabinetry|cooking|pantry/, fn: getKitchenKnowledge },
+    { key: 'wardrobe',   test: /wardrobe|closet|clothes|storage|walk-in|cabinet/, fn: getWardrobeKnowledge },
+    { key: 'showroom',   test: /showroom|visit|location|address|trx|maison|appointment|open|hour/, fn: getShowroomKnowledge },
+    { key: 'warranty',   test: /warranty|guarantee|claim|repair|after.?sales|defect/, fn: getWarrantyKnowledge },
+    { key: 'renovation', test: /renovation|interior|design|house|condo|budget|layout|floor plan/, fn: getRenovationKnowledge },
+    {
+        key: 'basicFurniture',
+        test: /sofa|couch|coffee table|dining|recliner|bed frame|basic furniture|cheaper|budget|alternative|arto|erga|euclio|forge|anta|arvo|hara|lyco|theta|zenith|crorix|flare|dream|colony|celestia|zenon|marlie|nebula|neva|perch|solaris|orbit|casa|pluto|moria|cozelle/,
+        fn: getBasicFurnitureKnowledge
+    }
+];
+
+// Groq's free-tier TPM cap (8,000 for the model this bot uses) can be exceeded by
+// a SINGLE request if every matched knowledge category gets concatenated at once —
+// a normal multi-need message ("renovating my kitchen, need a wardrobe, wall bed,
+// dining table...") can touch 6+ categories, ballooning the system prompt past the
+// entire per-minute budget by itself. Capping the count keeps any one request bounded.
+const MAX_KNOWLEDGE_MODULES = 3;
+
 function getRelevantKnowledge(message, history) {
     const recentHistoryText = Array.isArray(history)
         ? history.slice(-4).map(m => (m && m.content) ? m.content : '').join(' ')
         : '';
-    const msg = `${recentHistoryText} ${message}`.toLowerCase();
-    let knowledge = '';
+    const msgOnly  = (message || '').toLowerCase();
+    const combined = `${recentHistoryText} ${message}`.toLowerCase();
 
-    if (msg.match(/wall bed|wallbed|murphy bed|fold|gioco|murano|single bed|queen bed|ceiling/))
-        knowledge += getWallBedKnowledge();
-
-    if (msg.match(/sofa bed|sofabed|sofa|living room|couch/))
-        knowledge += getSofaBedKnowledge();
-
-    if (msg.match(/table|dining|desk|study/))
-        knowledge += getTableKnowledge();
-
-    if (msg.match(/kitchen|cabinet|cabinetry|cooking|pantry/))
-        knowledge += getKitchenKnowledge();
-
-    if (msg.match(/wardrobe|closet|clothes|storage|walk-in|cabinet/))
-        knowledge += getWardrobeKnowledge();
-
-    if (msg.match(/showroom|visit|location|address|trx|maison|appointment|open|hour/))
-        knowledge += getShowroomKnowledge();
-
-    if (msg.match(/warranty|guarantee|claim|repair|after.?sales|defect/))
-        knowledge += getWarrantyKnowledge();
-
-    if (msg.match(/renovation|interior|design|house|condo|budget|layout|floor plan/))
-        knowledge += getRenovationKnowledge();
-
-    if (msg.match(/sofa|couch|coffee table|dining|recliner|bed frame|basic furniture|cheaper|budget|alternative|arto|erga|euclio|forge|anta|arvo|hara|lyco|theta|zenith|crorix|flare|dream|colony|celestia|zenon|marlie|nebula|neva|perch|solaris|orbit|casa|pluto|moria|cozelle/))
-        knowledge += getBasicFurnitureKnowledge();
-
-    // Surround cabinetry — side/overhead cabinets built AROUND a wall bed.
-    // Distinct from the general "cabinet" keyword in the wardrobe/kitchen
-    // triggers above, which cover free-standing kitchen/wardrobe cabinetry.
-    if (msg.match(/side cabinet|overhead cabinet|surround cabinet|cabinet(ry)? around|cabinet(s|ry)? (on|beside|next to|for) (the |my )?(wall ?bed|bed)|wall ?bed.*cabinet|extra cabinet|estimate.*cabinet|cabinet.*(price|cost|quote|estimate)/))
-        knowledge += getCabinetryKnowledge();
+    // What the CURRENT message is about takes priority over something that only
+    // matched because it appeared a few turns back in history — that context is
+    // still checked (so a bare "what is X?" follow-up still works), just ranked lower.
+    const matchedInMessage = KNOWLEDGE_MODULES.filter(m => msgOnly.match(m.test));
+    const matchedFromHistoryOnly = KNOWLEDGE_MODULES.filter(m =>
+        !matchedInMessage.includes(m) && combined.match(m.test)
+    );
+    const prioritized = [...matchedInMessage, ...matchedFromHistoryOnly];
 
     // Fallback — if nothing matched, send a light default
-    if (!knowledge) {
-        knowledge += getWallBedKnowledge();
-        knowledge += getShowroomKnowledge();
+    if (prioritized.length === 0) {
+        return getWallBedKnowledge() + getShowroomKnowledge();
     }
 
-    return knowledge;
+    return prioritized.slice(0, MAX_KNOWLEDGE_MODULES).map(m => m.fn()).join('');
 }
 
 // ── Build system prompt ───────────────────────────────────────
@@ -212,9 +221,16 @@ async function callGroq(apiKey, requestBody) {
 }
 
 // ── Convert history to OpenAI/Groq format ────────────────────
+// Capped independently of whatever the client sends (the widget keeps up to 40
+// messages client-side for display) — recent turns carry the useful context;
+// sending the full 40 every single request adds unbounded, mostly-redundant
+// token cost on top of the per-request knowledge-module cap above.
+const MAX_HISTORY_TURNS_SENT_TO_MODEL = 12;
+
 function toGroqHistory(history) {
     if (!Array.isArray(history)) return [];
     return history
+        .slice(-MAX_HISTORY_TURNS_SENT_TO_MODEL)
         .filter(m => m && m.role && m.content && m.content.trim() !== '')
         .map(m => ({
             role:    m.role === 'user' ? 'user' : 'assistant',
