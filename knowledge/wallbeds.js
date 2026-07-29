@@ -1,3 +1,15 @@
+// Structured width lookup — single source of truth for both the knowledge
+// text below AND the cabinetry price calculator in api/chat.js, so the two
+// can never drift out of sync with each other. Order matters: more specific
+// patterns (Single/King) are checked before the broader "Queen"/"Gioco"
+// patterns that also match their Sofa/Desk/Shelves/other variants.
+export const WALLBED_MODEL_WIDTHS_FT = [
+    { pattern: /murano\s*single/i, widthFt: 3.48, label: 'Murano Single' },
+    { pattern: /murano\s*king/i,   widthFt: 6.50, label: 'Murano King' },
+    { pattern: /murano\s*queen/i,  widthFt: 5.48, label: 'Murano Queen' }, // covers Queen, Queen Sofa, Queen Desk, Queen Shelves — same width
+    { pattern: /gioco/i,           widthFt: 6.71, label: 'Gioco' }         // covers all Gioco models — same width regardless of variant
+];
+
 export function getWallBedKnowledge() {
     return `
 WALL BED PRODUCTS — PRICING & DIMENSIONS:

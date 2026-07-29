@@ -6,7 +6,7 @@
 // =============================================================
 
 import { getRenovationKnowledge }    from '../knowledge/renovation.js';
-import { getWallBedKnowledge }       from '../knowledge/wallbeds.js';
+import { getWallBedKnowledge, WALLBED_MODEL_WIDTHS_FT } from '../knowledge/wallbeds.js';
 import { getSofaBedKnowledge }       from '../knowledge/sofabeds.js';
 import { getTableKnowledge }         from '../knowledge/tables.js';
 import { getKitchenKnowledge }       from '../knowledge/kitchen.js';
@@ -139,16 +139,22 @@ After all collected → summarise and say: "Thank you! Please reach out to our d
 SURROUND CABINETRY ESTIMATES:
 - When a customer asks about adding cabinets/storage around a wall bed, treat it as
   surround cabinetry by default — confirm it's possible, then walk through the formula
-  in the KNOWLEDGE BASE section above, asking for wall height, wall bed width, and
-  (only if the wall is over 9ft tall) total wall width — one question at a time.
+  in the KNOWLEDGE BASE section above.
+- NEVER ask the customer directly for the wall bed's own width — they likely don't know
+  that spec, especially if they haven't bought a wall bed yet. Instead, check whether a
+  wall bed MODEL has already been established in this conversation (either they named
+  one, or you already recommended one) — its width is looked up automatically. If no
+  model has been established yet, ask which model they're considering (Murano Queen,
+  Murano Single, Murano King, or a Gioco model) instead of asking for a raw measurement.
+- Beyond that, ask for wall height, and (only if the wall is over 9ft tall) total wall
+  width, one question at a time — these ARE reasonable to ask, since they describe the
+  customer's own room, not a product spec.
 - If a "PRE-CALCULATED CABINETRY ESTIMATE" block appears below, the server has already
   computed it from this customer's own measurements — present those EXACT figures as
   the breakdown. Do NOT recalculate, re-round, or adjust them yourself.
-- If no such block appears, you don't have complete measurements yet — keep asking for
-  whichever of wall height / wall bed width is still missing. Only ask for total wall
-  width if the wall height is already confirmed to be OVER 9ft — a wall at or under 9ft
-  never needs it, so do not request it in that case. Do not guess or estimate a total
-  from memory before all required measurements are collected.
+- If no such block appears, you don't have everything needed yet — keep asking for
+  whichever of wall bed model / wall height / total wall width (if applicable) is still
+  missing. Do not guess or estimate a total from memory before that's all collected.
 - Always label it as an estimate confirmed via WhatsApp/site survey.
 - This is the ONE place where you may state a price that isn't literally written in the
   knowledge base — because it's a live calculation from the customer's own measurements,
@@ -320,28 +326,49 @@ const HEIGHT_PATTERNS = [
     /(?:wall\s*)?height[^\d]{0,30}?(\d+(?:\.\d+)?)\s*(?:ft|feet|')/,
     /(\d+(?:\.\d+)?)\s*(?:ft|feet|')[^\d]{0,20}?(?:tall|high\b|in\s*height)/
 ];
-const BED_WIDTH_PATTERNS = [
-    /(?:wall\s*?bed|\bbed\b)[^\d]{0,30}?(\d+(?:\.\d+)?)\s*(?:ft|feet|')/,
-    /(\d+(?:\.\d+)?)\s*(?:ft|feet|')[^\d]{0,20}?wide[^\d]{0,15}?(?:wall\s*)?bed/
-];
 // Strict form (contains the literal word "total") is always safe to check.
 const TOTAL_WIDTH_STRICT_PATTERNS = [
     /total[^\d]{0,25}?width[^\d]{0,25}?(\d+(?:\.\d+)?)\s*(?:ft|feet|')/
 ];
-// Looser forms ("the wall is 10ft wide") are only tried when this same
-// message didn't already match a bed-width keyword, otherwise a sentence
-// like "the wall bed is 5.5ft wide" gets its bed-width number miscounted
-// as the total wall width too.
+// Looser forms ("the wall is 10ft wide") are only tried when this same message
+// doesn't look like it's actually describing the BED's own width — a customer
+// occasionally volunteers that unprompted even though we no longer ask for it,
+// and "the wall bed is 5.5ft wide" should not get miscounted as the total wall.
+const BED_WIDTH_MENTION_GUARD = /(?:wall\s*)?bed[^\d]{0,20}?(?:\d+(?:\.\d+)?)\s*(?:ft|feet|')\s*wide|(?:\d+(?:\.\d+)?)\s*(?:ft|feet|')[^\d]{0,15}?wide[^\d]{0,10}?(?:wall\s*)?bed/;
 const TOTAL_WIDTH_LOOSE_PATTERNS = [
     /wall[^\d]{0,15}?(?:is|of)[^\d]{0,10}?(\d+(?:\.\d+)?)\s*(?:ft|feet|')\s*wide/,
     /(\d+(?:\.\d+)?)\s*(?:ft|feet|')[^\d]{0,10}?(?:wide|width)[^\d]{0,10}?wall\b/
 ];
 
+// Wall bed width is NEVER asked from the customer — it's a fixed spec of
+// whichever model they're getting, and most customers (especially ones who
+// haven't bought a wall bed yet) simply wouldn't know that measurement.
+// Instead, we detect which model has been established in the conversation
+// — named by either the customer OR the assistant's own recommendation —
+// and look its width up automatically. Scans BOTH roles (unlike the height/
+// total-width extraction, which only trusts the customer's own statements)
+// because the assistant is very often the one who names the specific model,
+// e.g. "I'd recommend the Murano Queen Sofa" with the customer just replying
+// "sounds good" — never re-stating the model name themselves.
+function extractSelectedWallBedModel(history, message) {
+    const priorTurns = Array.isArray(history) ? history.slice(-10) : [];
+    const turns = [...priorTurns, { role: 'user', content: message }];
+    let selected = null;
+    for (const turn of turns) {
+        if (!turn || !turn.content) continue;
+        const text = turn.content.toLowerCase();
+        for (const model of WALLBED_MODEL_WIDTHS_FT) {
+            if (model.pattern.test(text)) selected = model; // last mention (either role) wins
+        }
+    }
+    return selected;
+}
+
 function extractCabinetryDimensions(history, message) {
     const priorTurns = Array.isArray(history) ? history.slice(-10) : [];
     const turns = [...priorTurns, { role: 'user', content: message }];
 
-    let heightFt = null, bedWidthFt = null, totalWidthFt = null;
+    let heightFt = null, totalWidthFt = null;
 
     for (let i = 0; i < turns.length; i++) {
         const turn = turns[i];
@@ -356,15 +383,13 @@ function extractCabinetryDimensions(history, message) {
         // so a single message stating two measurements at once (very natural for
         // a customer to do, even though the bot asks one at a time) has both
         // captured instead of losing whichever pattern happened to be checked second.
-        const bedSelf    = extractFtValue(userText, BED_WIDTH_PATTERNS);
         const heightSelf = extractFtValue(userText, HEIGHT_PATTERNS);
         let totalSelf     = extractFtValue(userText, TOTAL_WIDTH_STRICT_PATTERNS);
-        if (totalSelf === null && bedSelf === null) {
+        if (totalSelf === null && !BED_WIDTH_MENTION_GUARD.test(userText)) {
             totalSelf = extractFtValue(userText, TOTAL_WIDTH_LOOSE_PATTERNS);
         }
 
         let matchedAny = false;
-        if (bedSelf !== null)    { bedWidthFt = bedSelf; matchedAny = true; }
         if (heightSelf !== null) { heightFt = heightSelf; matchedAny = true; }
         if (totalSelf !== null)  { totalWidthFt = totalSelf; matchedAny = true; }
 
@@ -377,11 +402,10 @@ function extractCabinetryDimensions(history, message) {
         if (isNaN(bareVal)) continue;
 
         if (/total\s*(?:wall\s*)?width/.test(prevAssistant)) totalWidthFt = bareVal;
-        else if (/wall ?bed|width of the (wall ?)?bed|bed width/.test(prevAssistant)) bedWidthFt = bareVal;
         else if (/height/.test(prevAssistant)) heightFt = bareVal;
     }
 
-    return { heightFt, bedWidthFt, totalWidthFt };
+    return { heightFt, totalWidthFt };
 }
 
 // Runs extraction + the real formula once; both the guard-allowlist and the
@@ -389,16 +413,17 @@ function extractCabinetryDimensions(history, message) {
 // so they can never disagree with each other.
 function getCabinetryEstimateFromContext(message, history) {
     try {
-        const { heightFt, bedWidthFt, totalWidthFt } = extractCabinetryDimensions(history, message);
-        if (!heightFt || !bedWidthFt) return null;
+        const { heightFt, totalWidthFt } = extractCabinetryDimensions(history, message);
+        const selectedModel = extractSelectedWallBedModel(history, message);
+        if (!heightFt || !selectedModel) return null;
 
         const result = calculateCabinetPrice({
             wallHeightFt: heightFt,
-            wallBedWidthFt: bedWidthFt,
+            wallBedWidthFt: selectedModel.widthFt,
             totalWallWidthFt: totalWidthFt ?? undefined
         });
 
-        return { heightFt, bedWidthFt, totalWidthFt, ...result };
+        return { heightFt, bedWidthFt: selectedModel.widthFt, bedModelLabel: selectedModel.label, totalWidthFt, ...result };
     } catch {
         return null; // e.g. height > 9ft but total wall width not collected yet
     }
@@ -430,7 +455,7 @@ function buildCabinetryEstimateBlock(message, history) {
         '',
         'PRE-CALCULATED CABINETRY ESTIMATE FOR THIS CUSTOMER (already computed from their measurements — use these EXACT figures, do not recalculate or round differently):',
         `- Side cabinets: ${formatRM(est.sideCostPerSide)} per side × ${est.sides} side(s) = ${formatRM(est.sideCostTotal)} (height used: ${est.sideHeightUsedFt}ft${est.exceedsStandard ? ', capped at the 9ft standard' : ''})`,
-        `- Overhead cabinet (${est.bedWidthFt}ft wide): ${formatRM(est.topCost)}`
+        `- Overhead cabinet (${est.bedWidthFt}ft wide, based on the ${est.bedModelLabel} you've been discussing): ${formatRM(est.topCost)}`
     ];
     if (est.exceedsStandard) {
         lines.push(`- Excess-height surcharge (wall is ${est.heightFt}ft, over the 9ft standard; full wall width ${est.totalWidthFt}ft): ${formatRM(est.exceedingCost)}`);
