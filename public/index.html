@@ -164,6 +164,8 @@
     border: 0.5px solid #dddddd;
     box-shadow: 0 1px 4px rgba(0,0,0,0.07);
   }
+  .bubble-img-wrap { margin-top: 8px; }
+  .bubble-img { max-width: 100%; border-radius: 10px; display: block; }
   .bubble.user {
     background: #000000; color: #fff;
     border-radius: 14px 3px 14px 14px;
@@ -394,7 +396,7 @@ async function process(txt) {
     hideTyping();
 
     if (data.success && data.message) {
-      addBot(data.message);
+      addBot(data.message, data.images);
       chatHistory.push({ role: 'assistant', content: data.message });
     } else {
       console.error('API error response:', JSON.stringify(data));
@@ -425,17 +427,26 @@ function addUser(txt) {
   scrollDown();
 }
 
-function addBot(txt) {
+function addBot(txt, images) {
   var row = document.createElement('div');
   row.className = 'mrow bot';
   row.innerHTML =
     '<div class="mav" aria-hidden="true">M</div>' +
     '<div class="mcol">' +
-      '<div class="bubble bot">' + fmt(txt) + '</div>' +
+      '<div class="bubble bot">' + fmt(txt) + imagesHtml(images) + '</div>' +
       '<div class="mtime">Moco · ' + now() + '</div>' +
     '</div>';
   msgs.appendChild(row);
   scrollDown();
+}
+
+function imagesHtml(images) {
+  if (!Array.isArray(images) || images.length === 0) return '';
+  return images.map(function (img) {
+    return '<div class="bubble-img-wrap"><img class="bubble-img" src="' +
+      esc(img.url) + '" alt="' + esc(img.label || '') + '" loading="lazy" ' +
+      'onerror="this.parentElement.style.display=\'none\'"></div>';
+  }).join('');
 }
 
 /* ── Typing indicator ────────────────────────────────── */

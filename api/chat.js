@@ -5,18 +5,19 @@
 // API Keys: GROQ_API_KEY (primary), GROQ_API_KEY_2 (fallback) in Vercel env vars
 // =============================================================
 
-import { getRenovationKnowledge }    from '../knowledge/renovation.js';
+import { getRenovationKnowledge } from '../knowledge/renovation.js';
 import { getWallBedKnowledge, WALLBED_MODEL_WIDTHS_FT } from '../knowledge/wallbeds.js';
-import { getSofaBedKnowledge }       from '../knowledge/sofabeds.js';
-import { getTableKnowledge }         from '../knowledge/tables.js';
-import { getKitchenKnowledge }       from '../knowledge/kitchen.js';
-import { getWardrobeKnowledge }      from '../knowledge/wardrobes.js';
-import { getShowroomKnowledge }      from '../knowledge/showroom.js';
-import { getWarrantyKnowledge }      from '../knowledge/warranty.js';
+import { getSofaBedKnowledge } from '../knowledge/sofabeds.js';
+import { getTableKnowledge } from '../knowledge/tables.js';
+import { getKitchenKnowledge } from '../knowledge/kitchen.js';
+import { getWardrobeKnowledge } from '../knowledge/wardrobes.js';
+import { getShowroomKnowledge } from '../knowledge/showroom.js';
+import { getWarrantyKnowledge } from '../knowledge/warranty.js';
 import { getBasicFurnitureKnowledge } from '../knowledge/basicfurniture.js';
 import { getCabinetryKnowledge, calculateCabinetPrice } from '../knowledge/cabinetry.js';
+import { getRelevantImages } from '../knowledge/productImages.js';
 
-const GROQ_URL   = 'https://api.groq.com/openai/v1/chat/completions';
+const GROQ_URL = 'https://api.groq.com/openai/v1/chat/completions';
 // NOTE: llama-3.1-8b-instant is deprecated by Groq — shutdown date 08/16/26.
 // Migrated to Groq's recommended replacement, openai/gpt-oss-20b, which is
 // also a stronger reasoning model (helps with grounding/hallucination too).
@@ -40,13 +41,13 @@ const KNOWLEDGE_MODULES = [
         test: /side cabinet|overhead cabinet|surround cabinet|cabinet(ry)? around|cabinet(s|ry)? (on|beside|next to|for) (the |my )?(wall ?bed|bed)|wall ?bed.*cabinet|extra cabinet|estimate.*cabinet|cabinet.*(price|cost|quote|estimate)/,
         fn: getCabinetryKnowledge
     },
-    { key: 'wallbed',    test: /wall bed|wallbed|murphy bed|fold|gioco|murano|single bed|queen bed|ceiling/, fn: getWallBedKnowledge },
-    { key: 'sofabed',    test: /sofa bed|sofabed|sofa|living room|couch/, fn: getSofaBedKnowledge },
-    { key: 'table',      test: /table|dining|desk|study/, fn: getTableKnowledge },
-    { key: 'kitchen',    test: /kitchen|cabinet|cabinetry|cooking|pantry/, fn: getKitchenKnowledge },
-    { key: 'wardrobe',   test: /wardrobe|closet|clothes|storage|walk-in|cabinet/, fn: getWardrobeKnowledge },
-    { key: 'showroom',   test: /showroom|visit|location|address|trx|maison|appointment|open|hour/, fn: getShowroomKnowledge },
-    { key: 'warranty',   test: /warranty|guarantee|claim|repair|after.?sales|defect/, fn: getWarrantyKnowledge },
+    { key: 'wallbed', test: /wall bed|wallbed|murphy bed|fold|gioco|murano|single bed|queen bed|ceiling/, fn: getWallBedKnowledge },
+    { key: 'sofabed', test: /sofa bed|sofabed|sofa|living room|couch/, fn: getSofaBedKnowledge },
+    { key: 'table', test: /table|dining|desk|study/, fn: getTableKnowledge },
+    { key: 'kitchen', test: /kitchen|cabinet|cabinetry|cooking|pantry/, fn: getKitchenKnowledge },
+    { key: 'wardrobe', test: /wardrobe|closet|clothes|storage|walk-in|cabinet/, fn: getWardrobeKnowledge },
+    { key: 'showroom', test: /showroom|visit|location|address|trx|maison|appointment|open|hour/, fn: getShowroomKnowledge },
+    { key: 'warranty', test: /warranty|guarantee|claim|repair|after.?sales|defect/, fn: getWarrantyKnowledge },
     { key: 'renovation', test: /renovation|interior|design|house|condo|budget|layout|floor plan/, fn: getRenovationKnowledge },
     {
         key: 'basicFurniture',
@@ -66,7 +67,7 @@ function getRelevantKnowledge(message, history) {
     const recentHistoryText = Array.isArray(history)
         ? history.slice(-4).map(m => (m && m.content) ? m.content : '').join(' ')
         : '';
-    const msgOnly  = (message || '').toLowerCase();
+    const msgOnly = (message || '').toLowerCase();
     const combined = `${recentHistoryText} ${message}`.toLowerCase();
 
     // What the CURRENT message is about takes priority over something that only
@@ -194,9 +195,9 @@ const RETRYABLE_STATUSES = new Set([401, 429, 500, 502, 503]);
 
 async function callGroq(apiKey, requestBody) {
     const groqRes = await fetch(GROQ_URL, {
-        method:  'POST',
+        method: 'POST',
         headers: {
-            'Content-Type':  'application/json',
+            'Content-Type': 'application/json',
             'Authorization': `Bearer ${apiKey}`
         },
         body: JSON.stringify(requestBody)
@@ -213,8 +214,8 @@ async function callGroq(apiKey, requestBody) {
     const data = await groqRes.json();
 
     if (
-        !data.choices            ||
-        !data.choices[0]         ||
+        !data.choices ||
+        !data.choices[0] ||
         !data.choices[0].message ||
         !data.choices[0].message.content
     ) {
@@ -239,7 +240,7 @@ function toGroqHistory(history) {
         .slice(-MAX_HISTORY_TURNS_SENT_TO_MODEL)
         .filter(m => m && m.role && m.content && m.content.trim() !== '')
         .map(m => ({
-            role:    m.role === 'user' ? 'user' : 'assistant',
+            role: m.role === 'user' ? 'user' : 'assistant',
             content: m.content.trim()
         }));
 }
@@ -384,14 +385,14 @@ function extractCabinetryDimensions(history, message) {
         // a customer to do, even though the bot asks one at a time) has both
         // captured instead of losing whichever pattern happened to be checked second.
         const heightSelf = extractFtValue(userText, HEIGHT_PATTERNS);
-        let totalSelf     = extractFtValue(userText, TOTAL_WIDTH_STRICT_PATTERNS);
+        let totalSelf = extractFtValue(userText, TOTAL_WIDTH_STRICT_PATTERNS);
         if (totalSelf === null && !BED_WIDTH_MENTION_GUARD.test(userText)) {
             totalSelf = extractFtValue(userText, TOTAL_WIDTH_LOOSE_PATTERNS);
         }
 
         let matchedAny = false;
         if (heightSelf !== null) { heightFt = heightSelf; matchedAny = true; }
-        if (totalSelf !== null)  { totalWidthFt = totalSelf; matchedAny = true; }
+        if (totalSelf !== null) { totalWidthFt = totalSelf; matchedAny = true; }
 
         if (matchedAny) continue;
 
@@ -470,7 +471,7 @@ function buildCabinetryEstimateBlock(message, history) {
 // AND aren't a live cabinetry-estimate figure computed from their own measurements.
 function findHallucinatedPrices(reply, userMessage, extraKnownAmounts = []) {
     const replyAmounts = extractAmounts(reply);
-    const userAmounts  = extractAmounts(userMessage || '');
+    const userAmounts = extractAmounts(userMessage || '');
     const allowedFromContext = [...userAmounts, ...extraKnownAmounts];
     const suspicious = [];
     for (const val of replyAmounts) {
@@ -485,7 +486,7 @@ const SAFE_FALLBACK_REPLY = "I want to make sure I give you accurate pricing rat
 export default async function handler(req, res) {
 
     // ── CORS headers ──────────────────────────────────────────
-    res.setHeader('Access-Control-Allow-Origin',  '*');
+    res.setHeader('Access-Control-Allow-Origin', '*');
     res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
     res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
 
@@ -519,15 +520,15 @@ export default async function handler(req, res) {
         const requestBody = {
             model: GROQ_MODEL,
             messages: [
-                { role: 'system',    content: buildSystemPrompt(message, history) },
+                { role: 'system', content: buildSystemPrompt(message, history) },
                 ...toGroqHistory(history || []),
-                { role: 'user',      content: message.trim() }
+                { role: 'user', content: message.trim() }
             ],
             temperature: 0.7,
             max_completion_tokens: 800, // gpt-oss reasoning tokens count against this budget too
             reasoning_effort: 'low',    // keep it fast/cheap for a real-time chat widget
-            top_p:       0.95,
-            stream:      false
+            top_p: 0.95,
+            stream: false
         };
 
         let reply = null;
@@ -557,19 +558,20 @@ export default async function handler(req, res) {
                 console.error('Blocked reply containing unrecognized price(s):', badPrices.join(', '), '| original reply:', reply);
                 reply = SAFE_FALLBACK_REPLY;
             }
-            return res.status(200).json({ success: true, message: reply });
+            const images = getRelevantImages(message, history);
+            return res.status(200).json({ success: true, message: reply, images });
         }
 
         const status = lastError?.status && lastError.status >= 400 ? lastError.status : 502;
         return res.status(status === 429 ? 502 : status).json({
-            error:   'Groq API error',
+            error: 'Groq API error',
             details: lastError?.details || lastError?.message || 'All API keys failed'
         });
 
     } catch (err) {
         console.error('Handler error:', err.message || err);
         return res.status(500).json({
-            error:   'Internal server error',
+            error: 'Internal server error',
             details: err.message
         });
     }
