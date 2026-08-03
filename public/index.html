@@ -327,8 +327,8 @@ window.addEventListener('load', function () {
 function toggleChat() {
   isOpen = !isOpen;
   popup.classList.toggle('open', isOpen);
-  icoOpen.className = 'l-icon ' + (isOpen ? 'hide' : 'show');
-  icoCls.className  = 'l-icon ' + (isOpen ? 'show' : 'hide');
+  icoOpen.setAttribute('class', 'l-icon ' + (isOpen ? 'hide' : 'show'));
+  icoCls.setAttribute('class', 'l-icon ' + (isOpen ? 'show' : 'hide'));
   badge.classList.remove('show');
   if (isOpen) setTimeout(function () { minput.focus(); }, 320);
 }
