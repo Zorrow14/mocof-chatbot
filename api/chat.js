@@ -1,8 +1,8 @@
 // =============================================================
 // FILE: api/chat.js
-// Vercel Serverless Function — handles all Gemini API calls
+// Vercel Serverless Function — handles all Groq API calls
 // Endpoint: POST /api/chat
-// API Keys: GEMINI_API_KEY in Vercel env vars
+// API Keys: GROQ_API_KEY in Vercel env vars
 // =============================================================
 
 import { getRenovationKnowledge } from '../knowledge/renovation.js';
@@ -17,8 +17,8 @@ import { getBasicFurnitureKnowledge } from '../knowledge/basicfurniture.js';
 import { getCabinetryKnowledge, calculateCabinetPrice } from '../knowledge/cabinetry.js';
 import { getRelevantImages } from '../knowledge/productImages.js';
 
-const GEMINI_MODEL = 'gemini-2.0-flash';
-const GEMINI_URL = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent`;
+const GROQ_URL = 'https://api.groq.com/openai/v1/chat/completions';
+const GROQ_MODEL = 'openai/gpt-oss-20b';
 
 // ── Detect which knowledge bases are relevant ─────────────────
 // IMPORTANT: this looks at the last few turns of history too, not just the
@@ -53,9 +53,11 @@ const KNOWLEDGE_MODULES = [
     }
 ];
 
-// A single multi-topic request can balloon the system prompt past a free-tier
-// model's token budget if every matched knowledge category gets concatenated at
-// once. Capping the count keeps any one request bounded.
+// Groq's free-tier TPM cap (8,000 for the model this bot uses) can be exceeded by
+// a SINGLE request if every matched knowledge category gets concatenated at once —
+// a normal multi-need message ("renovating my kitchen, need a wardrobe, wall bed,
+// dining table...") can touch 6+ categories, ballooning the system prompt past the
+// entire per-minute budget by itself. Capping the count keeps any one request bounded.
 const MAX_KNOWLEDGE_MODULES = 3;
 
 function getRelevantKnowledge(message, history) {
@@ -181,70 +183,60 @@ CRITICAL — GROUNDING (this section overrides anything above if there's ever a 
 }
 
 // ── API key ──────────────────────────────────────────────────
-function getGeminiApiKeys() {
-    return [process.env.GEMINI_API_KEY]
+function getGroqApiKeys() {
+    return [process.env.GROQ_API_KEY]
         .filter(key => typeof key === 'string' && key.trim() !== '');
 }
 
-async function callGemini(apiKey, requestBody) {
-    const geminiRes = await fetch(`${GEMINI_URL}?key=${encodeURIComponent(apiKey)}`, {
+async function callGroq(apiKey, requestBody) {
+    const groqRes = await fetch(GROQ_URL, {
         method: 'POST',
         headers: {
             'Content-Type': 'application/json',
+            'Authorization': `Bearer ${apiKey}`
         },
         body: JSON.stringify(requestBody)
     });
 
-    if (!geminiRes.ok) {
-        const errText = await geminiRes.text();
-        const err = new Error(`Gemini API error: ${geminiRes.status}`);
-        err.status = geminiRes.status;
+    if (!groqRes.ok) {
+        const errText = await groqRes.text();
+        const err = new Error(`Groq API error: ${groqRes.status}`);
+        err.status = groqRes.status;
         err.details = errText;
         throw err;
     }
 
-    const data = await geminiRes.json();
+    const data = await groqRes.json();
 
     if (
-        !data.candidates ||
-        !data.candidates[0] ||
-        !data.candidates[0].content ||
-        !Array.isArray(data.candidates[0].content.parts)
+        !data.choices ||
+        !data.choices[0] ||
+        !data.choices[0].message ||
+        !data.choices[0].message.content
     ) {
-        const err = new Error('Invalid response from Gemini');
+        const err = new Error('Invalid response from Groq');
         err.status = 502;
         throw err;
     }
 
-    const text = data.candidates[0].content.parts
-        .map(part => (part && typeof part.text === 'string') ? part.text : '')
-        .join('')
-        .trim();
-
-    if (!text) {
-        const err = new Error('Empty response from Gemini');
-        err.status = 502;
-        throw err;
-    }
-
-    return text;
+    return data.choices[0].message.content;
 }
 
-// ── Convert history to Gemini format ────────────────────────
+// ── Convert history to OpenAI/Groq format ────────────────────
 // Capped independently of whatever the client sends (the widget keeps up to 40
 // messages client-side for display) — recent turns carry the useful context;
 // sending the full 40 every single request adds unbounded, mostly-redundant
 // token cost on top of the per-request knowledge-module cap above.
 const MAX_HISTORY_TURNS_SENT_TO_MODEL = 12;
 
-function toGeminiContents(history) {
+function toGroqHistory(history) {
     if (!Array.isArray(history)) return [];
     return history
         .slice(-MAX_HISTORY_TURNS_SENT_TO_MODEL)
         .filter(m => m && m.role && m.content && m.content.trim() !== '')
         .map(m => ({
-            role: m.role === 'user' ? 'user' : 'model',
-            parts: [{ text: m.content.trim() }]
+            role: m.role === 'user' ? 'user' : 'assistant',
+            content: m.content.trim()
         }));
 }
 
@@ -502,10 +494,10 @@ export default async function handler(req, res) {
     }
 
     // ── Read API keys ─────────────────────────────────────────
-    const apiKeys = getGeminiApiKeys();
+    const apiKeys = getGroqApiKeys();
 
     if (apiKeys.length === 0) {
-        console.error('No Gemini API keys set — configure GEMINI_API_KEY in Vercel');
+        console.error('No Groq API keys set — configure GROQ_API_KEY in Vercel');
         return res.status(500).json({
             error: 'Server configuration error — API key missing'
         });
@@ -518,31 +510,30 @@ export default async function handler(req, res) {
         return res.status(400).json({ error: 'message is required' });
     }
 
-    // ── Build & send Gemini request ───────────────────────────
+    // ── Build & send Groq request ─────────────────────────────
     try {
         const requestBody = {
-            systemInstruction: {
-                parts: [{ text: buildSystemPrompt(message, history) }]
-            },
-            contents: [
-                ...toGeminiContents(history || []),
-                { role: 'user', parts: [{ text: message.trim() }] }
+            model: GROQ_MODEL,
+            messages: [
+                { role: 'system', content: buildSystemPrompt(message, history) },
+                ...toGroqHistory(history || []),
+                { role: 'user', content: message.trim() }
             ],
-            generationConfig: {
-                temperature: 0.7,
-                topP: 0.95,
-                maxOutputTokens: 800
-            }
+            temperature: 0.7,
+            max_completion_tokens: 800, // gpt-oss reasoning tokens count against this budget too
+            reasoning_effort: 'low',    // keep it fast/cheap for a real-time chat widget
+            top_p: 0.95,
+            stream: false
         };
 
         let reply = null;
         let lastError = null;
 
         try {
-            reply = await callGemini(apiKeys[0], requestBody);
+            reply = await callGroq(apiKeys[0], requestBody);
         } catch (err) {
             lastError = err;
-            console.error('Gemini key failed:', err.status || 'network', err.details || err.message);
+            console.error('Groq key failed:', err.status || 'network', err.details || err.message);
         }
 
         if (reply) {
@@ -558,7 +549,7 @@ export default async function handler(req, res) {
 
         const status = lastError?.status && lastError.status >= 400 ? lastError.status : 502;
         return res.status(status === 429 ? 502 : status).json({
-            error: 'Gemini API error',
+            error: 'Groq API error',
             details: lastError?.details || lastError?.message || 'All API keys failed'
         });
 
