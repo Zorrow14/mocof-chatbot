@@ -159,23 +159,41 @@ export const PRODUCT_IMAGES = [
 
 const MAX_IMAGES_PER_REPLY = 2;
 
-// Same message+recent-history strategy as getRelevantKnowledge() in
-// api/chat.js, so a follow-up like "show me a photo of that" still
-// resolves to whichever model was named a turn earlier.
-export function getRelevantImages(message, history) {
-    const recentHistoryText = Array.isArray(history)
-        ? history.slice(-4).map(m => (m && m.content) ? m.content : '').join(' ')
-        : '';
-    const combined = `${recentHistoryText} ${message}`.toLowerCase();
+// Phrases that signal "I want to SEE something" rather than just
+// mentioning a product in passing. Only these trigger the history
+// fallback below.
+const IMAGE_REQUEST_HINT = /\b(show|see|picture|photo|pic|image|look\s*like)\b/i;
 
+function matchProducts(text) {
     const seen = new Set();
     const matches = [];
     for (const entry of PRODUCT_IMAGES) {
-        if (combined.match(entry.pattern) && !seen.has(entry.url)) {
+        if (text.match(entry.pattern) && !seen.has(entry.url)) {
             seen.add(entry.url);
             matches.push({ label: entry.label, url: entry.url });
             if (matches.length >= MAX_IMAGES_PER_REPLY) break;
         }
     }
     return matches;
+}
+
+// Matches the CURRENT message only, by default — this is what stops an
+// old product (e.g. "Ottoman" from two turns ago) from re-attaching its
+// photo to an unrelated later reply (e.g. "Show me Levante table").
+// History is only consulted as a narrow fallback: when the customer
+// clearly asks to see something ("show me a photo of that") without
+// naming a product, in which case we look at just the ONE most recent
+// exchange, not several turns back.
+export function getRelevantImages(message, history) {
+    const lowerMessage = (message || '').toLowerCase();
+
+    const directMatches = matchProducts(lowerMessage);
+    if (directMatches.length > 0) return directMatches;
+
+    if (!IMAGE_REQUEST_HINT.test(lowerMessage)) return [];
+
+    const lastTurnText = Array.isArray(history)
+        ? history.slice(-2).map(m => (m && m.content) ? m.content : '').join(' ').toLowerCase()
+        : '';
+    return matchProducts(lastTurnText);
 }
