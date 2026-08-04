@@ -153,6 +153,286 @@ export const PRODUCT_IMAGES = [
         url: 'https://static.wixstatic.com/media/118d88_b4aae694dd774a2a938dcefaeae6d6ce~mv2.jpg/v1/fill/w_580,h_580,al_c,q_80,enc_avif,quality_auto/118d88_b4aae694dd774a2a938dcefaeae6d6ce~mv2.jpg'
     },
 
+    // ── Recliner ──
+    // "Cloth Cover" variant checked first so plain "Zeta" doesn't also match it.
+    {
+        pattern: /zeta.*clothe?\s*cover/i,
+        label: 'Zeta Recliner (Cloth Cover)',
+        url: 'https://static.wixstatic.com/media/be2f9f_63b4bd663c4d4da2b32352c575c387ff~mv2.jpg/v1/fill/w_704,h_704,al_c,q_85,usm_0.66_1.00_0.01,enc_avif,quality_auto/be2f9f_63b4bd663c4d4da2b32352c575c387ff~mv2.jpg'
+    },
+    {
+        pattern: /zeta(?!.*clothe?\s*cover)/i,
+        label: 'Zeta Recliner Chair',
+        url: 'https://static.wixstatic.com/media/be2f9f_77c9e118a88c4e6ea2c5a4c7760d389b~mv2.png/v1/fill/w_624,h_624,al_c,q_90,enc_avif,quality_auto/be2f9f_77c9e118a88c4e6ea2c5a4c7760d389b~mv2.png'
+    },
+
+    // ── TV Cabinets ──
+    {
+        pattern: /birch/i,
+        label: 'Birch TV Cabinet',
+        url: 'https://static.wixstatic.com/media/be2f9f_b1fe1fd3520a45ed806ff9df25a7313b~mv2.jpg/v1/fill/w_704,h_704,al_c,q_85,usm_0.66_1.00_0.01,enc_avif,quality_auto/be2f9f_b1fe1fd3520a45ed806ff9df25a7313b~mv2.jpg'
+    },
+    {
+        pattern: /riza/i,
+        label: 'Riza TV Cabinet',
+        url: 'https://static.wixstatic.com/media/be2f9f_a099f3736d084652b2d629c75d61de65~mv2.jpg/v1/fill/w_704,h_704,al_c,q_85,usm_0.66_1.00_0.01,enc_avif,quality_auto/be2f9f_a099f3736d084652b2d629c75d61de65~mv2.jpg'
+    },
+    {
+        pattern: /maven/i,
+        label: 'Maven TV Cabinet',
+        url: 'https://static.wixstatic.com/media/be2f9f_311a8d37abd448738b9daa6b72a6e210~mv2.jpg/v1/fill/w_704,h_704,al_c,q_85,usm_0.66_1.00_0.01,enc_avif,quality_auto/be2f9f_311a8d37abd448738b9daa6b72a6e210~mv2.jpg'
+    },
+    {
+        pattern: /zorra/i,
+        label: 'Zorra TV Cabinet',
+        url: 'https://static.wixstatic.com/media/be2f9f_c8bbf3f2e4d649b2b0b11fb04eada36d~mv2.jpg/v1/fill/w_704,h_704,al_c,q_85,usm_0.66_1.00_0.01,enc_avif,quality_auto/be2f9f_c8bbf3f2e4d649b2b0b11fb04eada36d~mv2.jpg'
+    },
+    {
+        pattern: /varo/i,
+        label: 'Varo TV Cabinet',
+        url: 'https://static.wixstatic.com/media/be2f9f_2d3a9ed46fed4ae0afd29f9dcaddeaaf~mv2.jpg/v1/fill/w_704,h_704,al_c,q_85,usm_0.66_1.00_0.01,enc_avif,quality_auto/be2f9f_2d3a9ed46fed4ae0afd29f9dcaddeaaf~mv2.jpg'
+    },
+
+    // ── Entryway (shoe rack / hallstands) ──
+    {
+        pattern: /draco/i,
+        label: 'Draco Shoe Rack',
+        url: 'https://static.wixstatic.com/media/be2f9f_8db2b239834041dfa37aa8faebab8dd2~mv2.jpg/v1/fill/w_704,h_704,al_c,q_85,usm_0.66_1.00_0.01,enc_avif,quality_auto/be2f9f_8db2b239834041dfa37aa8faebab8dd2~mv2.jpg'
+    },
+    {
+        pattern: /olola/i,
+        label: 'Olola Hood Rack',
+        url: 'https://static.wixstatic.com/media/be2f9f_191c05e6063a4d8d8b467792a9ccf417~mv2.jpg/v1/fill/w_704,h_704,al_c,q_85,usm_0.66_1.00_0.01,enc_avif,quality_auto/be2f9f_191c05e6063a4d8d8b467792a9ccf417~mv2.jpg'
+    },
+    {
+        pattern: /sade/i,
+        label: 'Sade Hallstand',
+        url: 'https://static.wixstatic.com/media/be2f9f_8afb48f6b6ff48189448766b3df32ee2~mv2.jpg/v1/fill/w_704,h_704,al_c,q_85,usm_0.66_1.00_0.01,enc_avif,quality_auto/be2f9f_8afb48f6b6ff48189448766b3df32ee2~mv2.jpg'
+    },
+    {
+        pattern: /nix/i,
+        label: 'Nix Hallstand',
+        url: 'https://static.wixstatic.com/media/be2f9f_4e1bc778d86a40b183a7d92e696b6523~mv2.jpg/v1/fill/w_704,h_704,al_c,q_85,usm_0.66_1.00_0.01,enc_avif,quality_auto/be2f9f_4e1bc778d86a40b183a7d92e696b6523~mv2.jpg'
+    },
+
+    // ── Basic Sofas ──
+    // "Nebula" uses a negative lookahead so it doesn't also match
+    // "Nebulatte" (a different product — a coffee table, listed below).
+    {
+        pattern: /perch/i,
+        label: 'Perch Sofa',
+        url: 'https://static.wixstatic.com/media/be2f9f_91d7e51045804a568ebe1202c0a8a616~mv2.jpg/v1/fill/w_459,h_459,al_c,q_80,usm_0.66_1.00_0.01,enc_avif,quality_auto/be2f9f_91d7e51045804a568ebe1202c0a8a616~mv2.jpg'
+    },
+    {
+        pattern: /cozelle/i,
+        label: 'Cozelle Sofa',
+        url: 'https://static.wixstatic.com/media/be2f9f_c5aba423013e4907ab45f282bc8ac2c8~mv2.jpg/v1/fill/w_459,h_459,al_c,q_80,usm_0.66_1.00_0.01,enc_avif,quality_auto/be2f9f_c5aba423013e4907ab45f282bc8ac2c8~mv2.jpg'
+    },
+    {
+        pattern: /casa/i,
+        label: 'Casa Sofa',
+        url: 'https://static.wixstatic.com/media/be2f9f_c03e1af15a2646b9b607801b5c74387e~mv2.jpg/v1/fill/w_459,h_459,al_c,q_80,usm_0.66_1.00_0.01,enc_avif,quality_auto/be2f9f_c03e1af15a2646b9b607801b5c74387e~mv2.jpg'
+    },
+    {
+        pattern: /celestia/i,
+        label: 'Celestia Sofa',
+        url: 'https://static.wixstatic.com/media/be2f9f_bc4bf405ff7848c98346fec11c10355a~mv2.jpg/v1/fill/w_734,h_734,al_c,q_85,usm_0.66_1.00_0.01,enc_avif,quality_auto/be2f9f_bc4bf405ff7848c98346fec11c10355a~mv2.jpg'
+    },
+    {
+        pattern: /orbit/i,
+        label: 'Orbit Sofa',
+        url: 'https://static.wixstatic.com/media/be2f9f_851f9f815c4949a6af5cd9e4e0e575c5~mv2.png/v1/fill/w_734,h_486,al_c,q_85,usm_0.66_1.00_0.01,enc_avif,quality_auto/be2f9f_851f9f815c4949a6af5cd9e4e0e575c5~mv2.png'
+    },
+    {
+        pattern: /zenon/i,
+        label: 'Zenon Sofa',
+        url: 'https://static.wixstatic.com/media/be2f9f_797b993d95474f31b88107f5d94dfd7d~mv2.jpg/v1/fill/w_459,h_459,al_c,q_80,usm_0.66_1.00_0.01,enc_avif,quality_auto/be2f9f_797b993d95474f31b88107f5d94dfd7d~mv2.jpg'
+    },
+    {
+        pattern: /moria/i,
+        label: 'Moria Sofa',
+        url: 'https://static.wixstatic.com/media/be2f9f_4321b1b678884973b7f026815e299357~mv2.jpg/v1/fill/w_734,h_734,al_c,q_85,usm_0.66_1.00_0.01,enc_avif,quality_auto/be2f9f_4321b1b678884973b7f026815e299357~mv2.jpg'
+    },
+    {
+        pattern: /lumina/i,
+        label: 'Lumina Sofa',
+        url: 'https://static.wixstatic.com/media/be2f9f_676e8585b8ac4cef8da2b62bc65a7a1d~mv2.jpg/v1/fill/w_734,h_734,al_c,q_85,usm_0.66_1.00_0.01,enc_avif,quality_auto/be2f9f_676e8585b8ac4cef8da2b62bc65a7a1d~mv2.jpg'
+    },
+    {
+        pattern: /zenith/i,
+        label: 'Zenith Sofa',
+        url: 'https://static.wixstatic.com/media/be2f9f_cf271f59dcb14d068a413ca268a9df70~mv2.jpg/v1/fill/w_459,h_459,al_c,q_80,usm_0.66_1.00_0.01,enc_avif,quality_auto/be2f9f_cf271f59dcb14d068a413ca268a9df70~mv2.jpg'
+    },
+    {
+        pattern: /crorix/i,
+        label: 'Crorix Sofa',
+        url: 'https://static.wixstatic.com/media/be2f9f_33482299680748678d0ea9c1adb244bd~mv2.jpg/v1/fill/w_734,h_734,al_c,q_85,usm_0.66_1.00_0.01,enc_avif,quality_auto/be2f9f_33482299680748678d0ea9c1adb244bd~mv2.jpg'
+    },
+    {
+        pattern: /solaris/i,
+        label: 'Solaris Sofa',
+        url: 'https://static.wixstatic.com/media/be2f9f_13ae0b88191d4b49ae8e4acd9f43bc07~mv2.jpg/v1/fill/w_459,h_459,al_c,q_80,usm_0.66_1.00_0.01,enc_avif,quality_auto/be2f9f_13ae0b88191d4b49ae8e4acd9f43bc07~mv2.jpg'
+    },
+    {
+        pattern: /nebula(?!tte)/i,
+        label: 'Nebula Sofa',
+        url: 'https://static.wixstatic.com/media/be2f9f_38613d4c6780466e87ed04afcb324082~mv2.jpg/v1/fill/w_459,h_459,al_c,q_80,usm_0.66_1.00_0.01,enc_avif,quality_auto/be2f9f_38613d4c6780466e87ed04afcb324082~mv2.jpg'
+    },
+    {
+        pattern: /neva/i,
+        label: 'Neva Sofa',
+        url: 'https://static.wixstatic.com/media/be2f9f_dea923e3446b469da5040c22feaf32a5~mv2.jpg/v1/fill/w_459,h_459,al_c,q_80,usm_0.66_1.00_0.01,enc_avif,quality_auto/be2f9f_dea923e3446b469da5040c22feaf32a5~mv2.jpg'
+    },
+    {
+        pattern: /pluto/i,
+        label: 'Pluto Sofa',
+        url: 'https://static.wixstatic.com/media/be2f9f_2e5b9555fee64de5bec0b991093a6941~mv2.jpg/v1/fill/w_734,h_734,al_c,q_85,usm_0.66_1.00_0.01,enc_avif,quality_auto/be2f9f_2e5b9555fee64de5bec0b991093a6941~mv2.jpg'
+    },
+    {
+        pattern: /drion/i,
+        label: 'Drion Sofa',
+        url: 'https://static.wixstatic.com/media/be2f9f_0384bb5d2a2b466a9187bf4e146e5e05~mv2.jpg/v1/fill/w_459,h_459,al_c,q_80,usm_0.66_1.00_0.01,enc_avif,quality_auto/be2f9f_0384bb5d2a2b466a9187bf4e146e5e05~mv2.jpg'
+    },
+    {
+        pattern: /flare/i,
+        label: 'Flare Sofa',
+        url: 'https://static.wixstatic.com/media/be2f9f_9cabac2b7f214425b56daa4a0ebbdb42~mv2.jpg/v1/fill/w_459,h_459,al_c,q_80,usm_0.66_1.00_0.01,enc_avif,quality_auto/be2f9f_9cabac2b7f214425b56daa4a0ebbdb42~mv2.jpg'
+    },
+    {
+        pattern: /marlie/i,
+        label: 'Marlie Sofa',
+        url: 'https://static.wixstatic.com/media/be2f9f_b0c1146da7f14b8096dac4d6a8ecd578~mv2.jpg/v1/fill/w_459,h_459,al_c,q_80,usm_0.66_1.00_0.01,enc_avif,quality_auto/be2f9f_b0c1146da7f14b8096dac4d6a8ecd578~mv2.jpg'
+    },
+    {
+        pattern: /colony/i,
+        label: 'Colony Sofa',
+        url: 'https://static.wixstatic.com/media/be2f9f_6c5d19906bf340608aa2cc6f8a7e0b1f~mv2.webp/v1/fill/w_459,h_459,al_c,q_80,usm_0.66_1.00_0.01,enc_avif,quality_auto/be2f9f_6c5d19906bf340608aa2cc6f8a7e0b1f~mv2.webp'
+    },
+    {
+        pattern: /theta/i,
+        label: 'Theta Sofa',
+        url: 'https://static.wixstatic.com/media/be2f9f_3264df3c8e78478691d6670a770e48dd~mv2.jpg/v1/fill/w_459,h_459,al_c,q_80,usm_0.66_1.00_0.01,enc_avif,quality_auto/be2f9f_3264df3c8e78478691d6670a770e48dd~mv2.jpg'
+    },
+    {
+        pattern: /dream/i,
+        label: 'Dream Sofa',
+        url: 'https://static.wixstatic.com/media/be2f9f_ffb8f8efe8484455a57ab924ecc43a5a~mv2.jpg/v1/fill/w_459,h_459,al_c,q_80,usm_0.66_1.00_0.01,enc_avif,quality_auto/be2f9f_ffb8f8efe8484455a57ab924ecc43a5a~mv2.jpg'
+    },
+    {
+        pattern: /canis/i,
+        label: 'Canis L Shape Sofa',
+        url: 'https://static.wixstatic.com/media/be2f9f_c2d98588f39b492eb352db62ac639915~mv2.jpg/v1/fill/w_749,h_498,al_c,q_85,usm_0.66_1.00_0.01,enc_avif,quality_auto/be2f9f_c2d98588f39b492eb352db62ac639915~mv2.jpg'
+    },
+
+    // ── Basic Sofa Bed: Kivo + Velvet (6 colours), each Open/Closed ──
+    {
+        pattern: /kivo(?=.*\b(open|opened|unfold|unfolded|extended)\b)/i,
+        label: 'Kivo Sofa Bed (Open)',
+        url: 'https://static.wixstatic.com/media/be2f9f_ca767b0299c14835b0d93ca2b310da16~mv2.jpg/v1/fill/w_734,h_734,al_c,q_85,usm_0.66_1.00_0.01,enc_avif,quality_auto/be2f9f_ca767b0299c14835b0d93ca2b310da16~mv2.jpg'
+    },
+    {
+        pattern: /kivo(?!.*\b(open|opened|unfold|unfolded|extended)\b)/i,
+        label: 'Kivo Sofa Bed (Closed)',
+        url: 'https://static.wixstatic.com/media/be2f9f_0dc27d39e8f34a7c8da65c32e5495a38~mv2.jpg/v1/fill/w_734,h_734,al_c,q_85,usm_0.66_1.00_0.01,enc_avif,quality_auto/be2f9f_0dc27d39e8f34a7c8da65c32e5495a38~mv2.jpg'
+    },
+    {
+        pattern: /pastel\s*pink(?=.*\b(open|opened|unfold|unfolded|extended)\b)/i,
+        label: 'Pastel Pink Velvet Sofa Bed (Open)',
+        url: 'https://static.wixstatic.com/media/72b6a8_a4385df0cddd4240994de5e5c85d0192~mv2.jpg/v1/fill/w_734,h_489,al_c,q_80,usm_0.66_1.00_0.01,enc_avif,quality_auto/72b6a8_a4385df0cddd4240994de5e5c85d0192~mv2.jpg'
+    },
+    {
+        pattern: /pastel\s*pink(?!.*\b(open|opened|unfold|unfolded|extended)\b)/i,
+        label: 'Pastel Pink Velvet Sofa Bed (Closed)',
+        url: 'https://static.wixstatic.com/media/72b6a8_86fceab5a4184e9c9aceedd2f31bbbd4~mv2.jpg/v1/fill/w_734,h_489,al_c,q_80,usm_0.66_1.00_0.01,enc_avif,quality_auto/72b6a8_86fceab5a4184e9c9aceedd2f31bbbd4~mv2.jpg'
+    },
+    {
+        pattern: /royal\s*blue(?=.*\b(open|opened|unfold|unfolded|extended)\b)/i,
+        label: 'Royal Blue Velvet Sofa Bed (Open)',
+        url: 'https://static.wixstatic.com/media/72b6a8_6aae424d856240b98197e90faef07ce0~mv2.jpg/v1/fill/w_734,h_489,al_c,q_80,usm_0.66_1.00_0.01,enc_avif,quality_auto/72b6a8_6aae424d856240b98197e90faef07ce0~mv2.jpg'
+    },
+    {
+        pattern: /royal\s*blue(?!.*\b(open|opened|unfold|unfolded|extended)\b)/i,
+        label: 'Royal Blue Velvet Sofa Bed (Closed)',
+        url: 'https://static.wixstatic.com/media/72b6a8_f0bc677d2da14e1bb32f1e46c1947bd2~mv2.jpg/v1/fill/w_734,h_489,al_c,q_80,usm_0.66_1.00_0.01,enc_avif,quality_auto/72b6a8_f0bc677d2da14e1bb32f1e46c1947bd2~mv2.jpg'
+    },
+    {
+        pattern: /jade\s*green(?=.*\b(open|opened|unfold|unfolded|extended)\b)/i,
+        label: 'Jade Green Velvet Sofa Bed (Open)',
+        url: 'https://static.wixstatic.com/media/72b6a8_19a7131058964edbabb0bfec9a189741~mv2.jpg/v1/fill/w_734,h_489,al_c,q_80,usm_0.66_1.00_0.01,enc_avif,quality_auto/72b6a8_19a7131058964edbabb0bfec9a189741~mv2.jpg'
+    },
+    {
+        pattern: /jade\s*green(?!.*\b(open|opened|unfold|unfolded|extended)\b)/i,
+        label: 'Jade Green Velvet Sofa Bed (Closed)',
+        url: 'https://static.wixstatic.com/media/72b6a8_d2a4dabd52e444c691580c4a2e722a7d~mv2.jpg/v1/fill/w_734,h_489,al_c,q_80,usm_0.66_1.00_0.01,enc_avif,quality_auto/72b6a8_d2a4dabd52e444c691580c4a2e722a7d~mv2.jpg'
+    },
+    {
+        pattern: /aegean\s*blue(?=.*\b(open|opened|unfold|unfolded|extended)\b)/i,
+        label: 'Aegean Blue Velvet Sofa Bed (Open)',
+        url: 'https://static.wixstatic.com/media/72b6a8_b442b7f3a0e04e85894d8e31775e487f~mv2.jpg/v1/fill/w_714,h_476,al_c,q_80,usm_0.66_1.00_0.01,enc_avif,quality_auto/72b6a8_b442b7f3a0e04e85894d8e31775e487f~mv2.jpg'
+    },
+    {
+        pattern: /aegean\s*blue(?!.*\b(open|opened|unfold|unfolded|extended)\b)/i,
+        label: 'Aegean Blue Velvet Sofa Bed (Closed)',
+        url: 'https://static.wixstatic.com/media/72b6a8_42b9021674854889a2ad547433339139~mv2.jpg/v1/fill/w_734,h_470,al_c,q_80,usm_0.66_1.00_0.01,enc_avif,quality_auto/72b6a8_42b9021674854889a2ad547433339139~mv2.jpg'
+    },
+    {
+        pattern: /mustard\s*yellow(?=.*\b(open|opened|unfold|unfolded|extended)\b)/i,
+        label: 'Mustard Yellow Velvet Sofa Bed (Open)',
+        url: 'https://static.wixstatic.com/media/72b6a8_8150abb1d42f42aeb02101b480f44c45~mv2.jpg/v1/fill/w_749,h_498,al_c,q_85,usm_0.66_1.00_0.01,enc_avif,quality_auto/72b6a8_8150abb1d42f42aeb02101b480f44c45~mv2.jpg'
+    },
+    {
+        pattern: /mustard\s*yellow(?!.*\b(open|opened|unfold|unfolded|extended)\b)/i,
+        label: 'Mustard Yellow Velvet Sofa Bed (Closed)',
+        url: 'https://static.wixstatic.com/media/72b6a8_18d7d4487a954ecf937995808248ade5~mv2.jpg/v1/fill/w_749,h_498,al_c,q_85,usm_0.66_1.00_0.01,enc_avif,quality_auto/72b6a8_18d7d4487a954ecf937995808248ade5~mv2.jpg'
+    },
+    {
+        pattern: /french\s*blue(?=.*\b(open|opened|unfold|unfolded|extended)\b)/i,
+        label: 'French Blue Velvet Sofa Bed (Open)',
+        url: 'https://static.wixstatic.com/media/72b6a8_b757647ae7e3486fb9a85d0701ff21c8~mv2.jpg/v1/fill/w_734,h_489,al_c,q_80,usm_0.66_1.00_0.01,enc_avif,quality_auto/72b6a8_b757647ae7e3486fb9a85d0701ff21c8~mv2.jpg'
+    },
+    {
+        pattern: /french\s*blue(?!.*\b(open|opened|unfold|unfolded|extended)\b)/i,
+        label: 'French Blue Velvet Sofa Bed (Closed)',
+        url: 'https://static.wixstatic.com/media/72b6a8_24a8bde7666047b09c2a6380eb607a54~mv2.jpg/v1/fill/w_734,h_489,al_c,q_80,usm_0.66_1.00_0.01,enc_avif,quality_auto/72b6a8_24a8bde7666047b09c2a6380eb607a54~mv2.jpg'
+    },
+
+    // ── Coffee Tables & Stool ──
+    {
+        pattern: /nebulatte/i,
+        label: 'Nebulatte Coffee Table',
+        url: 'https://static.wixstatic.com/media/be2f9f_178f6631470b43cdb72be1bb76515bb2~mv2.jpg/v1/fill/w_665,h_498,al_c,q_80,usm_0.66_1.00_0.01,enc_avif,quality_auto/be2f9f_178f6631470b43cdb72be1bb76515bb2~mv2.jpg'
+    },
+    {
+        pattern: /dock/i,
+        label: 'Dock Coffee Table',
+        url: 'https://static.wixstatic.com/media/be2f9f_0fd6dc7bb3ff4397a1295ef19111a258~mv2.jpg/v1/fill/w_490,h_734,al_c,q_80,usm_0.66_1.00_0.01,enc_avif,quality_auto/be2f9f_0fd6dc7bb3ff4397a1295ef19111a258~mv2.jpg'
+    },
+    {
+        pattern: /zovo/i,
+        label: 'Zovo Coffee Table',
+        url: 'https://static.wixstatic.com/media/be2f9f_75841a4e6a7842409fd8e4aac3002a4b~mv2.jpg/v1/fill/w_665,h_498,al_c,q_80,usm_0.66_1.00_0.01,enc_avif,quality_auto/be2f9f_75841a4e6a7842409fd8e4aac3002a4b~mv2.jpg'
+    },
+    {
+        pattern: /pebble/i,
+        label: 'Pebble Coffee Table',
+        url: 'https://static.wixstatic.com/media/be2f9f_62e1e1f2958947f4a32933908dd7921a~mv2.jpg/v1/fill/w_665,h_498,al_c,q_80,usm_0.66_1.00_0.01,enc_avif,quality_auto/be2f9f_62e1e1f2958947f4a32933908dd7921a~mv2.jpg'
+    },
+    {
+        pattern: /librae/i,
+        label: 'Librae Coffee Table',
+        url: 'https://static.wixstatic.com/media/be2f9f_4222b9771c364174acf74b6583b88d80~mv2.jpg/v1/fill/w_734,h_734,al_c,q_85,usm_0.66_1.00_0.01,enc_avif,quality_auto/be2f9f_4222b9771c364174acf74b6583b88d80~mv2.jpg'
+    },
+    {
+        pattern: /starry/i,
+        label: 'Starry Coffee Table',
+        url: 'https://static.wixstatic.com/media/be2f9f_59f0e731ed59458aae1959528214d4ca~mv2.jpg/v1/fill/w_665,h_498,al_c,q_80,usm_0.66_1.00_0.01,enc_avif,quality_auto/be2f9f_59f0e731ed59458aae1959528214d4ca~mv2.jpg'
+    },
+    {
+        pattern: /luna\s*stool/i,
+        label: 'Luna Stool',
+        url: 'https://static.wixstatic.com/media/be2f9f_db74b4993b1d449ab6a0b6b1a3a77e6c~mv2.jpg/v1/fill/w_665,h_498,al_c,q_80,usm_0.66_1.00_0.01,enc_avif,quality_auto/be2f9f_db74b4993b1d449ab6a0b6b1a3a77e6c~mv2.jpg'
+    },
+
     // Add kitchen / wardrobes the same way once their image links are
     // available.
 ];
