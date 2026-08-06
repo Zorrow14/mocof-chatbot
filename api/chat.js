@@ -165,10 +165,11 @@ SURROUND CABINETRY ESTIMATES:
   not an invented number. Do not use this as license to estimate prices anywhere else.
 ${buildCabinetryEstimateBlock(message, history)}
 
-IMAGES:
+CRITICAL — IMAGES:
 - A separate system automatically attaches a real product photo to your reply when relevant — this happens entirely outside your control and you have no visibility into whether one will be attached to THIS reply.
-- NEVER say you don't have a photo/image available, never apologise for missing images, and never offer to send a catalog link or arrange a showroom viewing specifically "so they can see it" — a real photo may already be showing right alongside your text, and saying otherwise contradicts it.
-- Simply answer the product question in text. If the customer specifically asks to see a photo, just answer their underlying question (price, specs, etc.) without commenting on the photo itself either way.
+- Do NOT mention images, photos, or pictures in your text reply AT ALL — not to confirm one exists, not to deny one exists, and not to comment on your own ability to display one. This applies even when the customer explicitly asks to "see a photo" or "show me an image."
+- Banned phrases — never write anything like these, in any wording: "I can't display images directly", "I'm unable to show pictures", "I don't have a photo available", "I can't send images", "here's a description instead of a photo". All of these are forbidden, regardless of phrasing, because a real photo may already be attached right alongside your text and any of these sentences would directly contradict it.
+- Instead: when a customer asks to see a product, just answer the substantive question (price, specs, dimensions, availability) as if the photo question was never asked. Do not acknowledge the request for a photo one way or the other — simply skip past it to the product information.
 
 SHOWROOM APPOINTMENT / SHOW UNIT VIEWING:
 - For TRX Core Residence or Maison MOCOF TRX viewings → always say: "This is by appointment only — please contact us on WhatsApp at +60 12-568 4568 to book your visit."
@@ -488,6 +489,25 @@ function findHallucinatedPrices(reply, userMessage, extraKnownAmounts = []) {
 
 const SAFE_FALLBACK_REPLY = "I want to make sure I give you accurate pricing rather than guess — let me connect you with our team directly. Please reach out on **WhatsApp** at +60 12-568 4568 and they'll confirm the exact options and prices for you. Is there anything else I can help with in the meantime?";
 
+// Backstop for the CRITICAL — IMAGES system-prompt rule: strips any sentence
+// that still claims an inability to show/display/send a photo, in case the
+// model slips one through despite the instruction (same "verify in code,
+// don't just trust the prompt" principle as findHallucinatedPrices above).
+const IMAGE_DISCLAIMER_SENTENCE = /\b(can'?t|cannot|unable to|don'?t have|do not have|no way to)\b[^.!?]{0,60}\b(images?|photos?|pictures?)\b|\b(images?|photos?|pictures?)\b[^.!?]{0,60}\b(can'?t|cannot|unable|not available|not possible|aren'?t available)\b/i;
+
+function stripImageDisclaimers(text) {
+    // Split on sentence-ending punctuation followed by whitespace. This
+    // intentionally does NOT split on periods inside numbers like "3,219.30"
+    // since there's no whitespace directly after that period.
+    const sentences = text.split(/(?<=[.!?])\s+/);
+    const kept = sentences.filter(s => !IMAGE_DISCLAIMER_SENTENCE.test(s));
+    if (kept.length < sentences.length) {
+        const removed = sentences.filter(s => IMAGE_DISCLAIMER_SENTENCE.test(s));
+        console.warn('Stripped image-disclaimer sentence(s) from reply:', removed.join(' | '));
+    }
+    return kept.join(' ').trim();
+}
+
 // ── Main handler ──────────────────────────────────────────────
 export default async function handler(req, res) {
 
@@ -547,6 +567,10 @@ export default async function handler(req, res) {
             console.error('Groq key failed:', err.status || 'network', err.details || err.message);
         }
 
+        // Backstop for the CRITICAL — IMAGES system-prompt rule: strips any sentence
+        // that still claims an inability to show/display/send a photo, in case the
+        // model slips one through despite the instruction (same "verify in code,
+        // don't just trust the prompt" principle as findHallucinatedPrices above).
         if (reply) {
             const cabinetryAllowedAmounts = computeCabinetryAllowedAmounts(message, history);
             const badPrices = findHallucinatedPrices(reply, message, cabinetryAllowedAmounts);
@@ -554,6 +578,7 @@ export default async function handler(req, res) {
                 console.error('Blocked reply containing unrecognized price(s):', badPrices.join(', '), '| original reply:', reply);
                 reply = SAFE_FALLBACK_REPLY;
             }
+            reply = stripImageDisclaimers(reply);
             const images = getRelevantImages(message, history);
             return res.status(200).json({ success: true, message: reply, images });
         }
