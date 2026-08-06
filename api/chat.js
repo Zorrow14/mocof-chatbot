@@ -39,7 +39,7 @@ const KNOWLEDGE_MODULES = [
         fn: getCabinetryKnowledge
     },
     { key: 'wallbed', test: /wall bed|wallbed|murphy bed|fold|gioco|murano|single bed|queen bed|ceiling/, fn: getWallBedKnowledge },
-    { key: 'sofabed', test: /sofa bed|sofabed|sofa|living room|couch/, fn: getSofaBedKnowledge },
+    { key: 'sofabed', test: /sofa bed|sofabed|sofa|living room|couch|ottoman|orzo|kivo|hori/, fn: getSofaBedKnowledge },
     { key: 'table', test: /table|dining|desk|study/, fn: getTableKnowledge },
     { key: 'kitchen', test: /kitchen|cabinet|cabinetry|cooking|pantry/, fn: getKitchenKnowledge },
     { key: 'wardrobe', test: /wardrobe|closet|clothes|storage|walk-in|cabinet/, fn: getWardrobeKnowledge },
@@ -48,7 +48,13 @@ const KNOWLEDGE_MODULES = [
     { key: 'renovation', test: /renovation|interior|design|house|condo|budget|layout|floor plan/, fn: getRenovationKnowledge },
     {
         key: 'basicFurniture',
-        test: /sofa|couch|coffee table|dining|recliner|bed frame|basic furniture|cheaper|budget|alternative|arto|erga|euclio|forge|anta|arvo|hara|lyco|theta|zenith|crorix|flare|dream|colony|celestia|zenon|marlie|nebula|neva|perch|solaris|orbit|casa|pluto|moria|cozelle/,
+        // NOTE: this list must stay in sync with the model names actually named
+        // in basicfurniture.js -- a name missing here means the model gets ZERO
+        // information about that product (even though a real photo can still be
+        // attached separately via productImages.js), which is what caused the
+        // "Glint Table" incident: the customer got a real photo but the model's
+        // text wrongly claimed no knowledge of the product at all.
+        test: /sofa|couch|coffee table|dining|recliner|bed frame|basic furniture|cheaper|budget|alternative|arto|erga|euclio|forge|anta|arvo|hara|lyco|theta|zenith|crorix|flare|dream|colony|celestia|zenon|marlie|nebula|neva|perch|solaris|orbit|casa|pluto|moria|cozelle|lumina|drion|canis|zeta|birch|riza|maven|zorra|varo|draco|olola|sade|nix|dock|zovo|pebble|nebulatte|librae|hush|holo|vine|vellum|modo|etho|nexo|tetra|jolly|solis|zen|chair|stool|trolley|vion|lurn|prova|brilla|elzia|grano|valor|rootsy|roosty|pallio|proxima|venus|sone|bella|melba|solara|primo|thora|resili|eclipse|clover|eden|liro|velvia|petrus|heem|shelf|axil|andro|loom|feilo|vale|claria|mesa|rove|levo|mira|letho|moza|nook|avo|orion|stellar|crolla|lambda|apus|elevatia|glint/,
         fn: getBasicFurnitureKnowledge
     }
 ];
@@ -158,6 +164,11 @@ SURROUND CABINETRY ESTIMATES:
   knowledge base — because it's a live calculation from the customer's own measurements,
   not an invented number. Do not use this as license to estimate prices anywhere else.
 ${buildCabinetryEstimateBlock(message, history)}
+
+IMAGES:
+- A separate system automatically attaches a real product photo to your reply when relevant — this happens entirely outside your control and you have no visibility into whether one will be attached to THIS reply.
+- NEVER say you don't have a photo/image available, never apologise for missing images, and never offer to send a catalog link or arrange a showroom viewing specifically "so they can see it" — a real photo may already be showing right alongside your text, and saying otherwise contradicts it.
+- Simply answer the product question in text. If the customer specifically asks to see a photo, just answer their underlying question (price, specs, etc.) without commenting on the photo itself either way.
 
 SHOWROOM APPOINTMENT / SHOW UNIT VIEWING:
 - For TRX Core Residence or Maison MOCOF TRX viewings → always say: "This is by appointment only — please contact us on WhatsApp at +60 12-568 4568 to book your visit."
