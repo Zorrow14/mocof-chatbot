@@ -790,6 +790,19 @@ export const PRODUCT_IMAGES = [
         url: 'https://static.wixstatic.com/media/be2f9f_c74528c227f54d65b2927c4761e4d39a~mv2.jpg/v1/fill/w_577,h_733,al_c,q_85,usm_0.66_1.00_0.01,enc_avif,quality_auto/be2f9f_c74528c227f54d65b2927c4761e4d39a~mv2.jpg'
     },
 
+    // ── Reference / lifestyle photos (not tied to one specific product) ──
+    // Triggers on wall bed + cabinet TOPIC discussed together with an
+    // explicit visual-intent word (reference/example/show/etc.) -- e.g.
+    // "reference for wall bed and cabinets", "example of wallbed with
+    // storage", "how does a wall bed with cabinetry look". Deliberately
+    // requires that third visual-intent word so this doesn't also attach
+    // itself to plain pricing or dimension questions about the same topic.
+    {
+        pattern: /(?=.*\b(wall\s*beds?|wallbeds?|murphy\s*beds?)\b)(?=.*\b(cabinets?|cabinetry|storage|shelv\w*)\b)(?=.*\b(references?|examples?|samples?|ideas?|inspirations?|layouts?|configurations?|configure\w*|customi[sz]e\w*|look\s*like|shows?|pictures?|photos?|pics?|images?)\b)/i,
+        label: 'Wall Bed + Cabinetry Reference Photo',
+        url: '/images/wallbed-cabinetry-reference.png'
+    },
+
     // ── Basic Study Table ──
     {
         pattern: /\belevatia\b/i,
