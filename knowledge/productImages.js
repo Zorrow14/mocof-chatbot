@@ -825,6 +825,15 @@ const MAX_IMAGES_PER_REPLY = 2;
 // fallback below.
 const IMAGE_REQUEST_HINT = /\b(show|see|picture|photo|pic|image|look\s*like)\b/i;
 
+// A number + unit (8ft, 2.5 metres, 30cm...) strongly signals the customer
+// is ANSWERING a measurement question (e.g. the bot's own "what's the wall
+// height?" during a cabinetry quote) rather than browsing/asking to view a
+// product -- even if a model name happens to be in the same message. This
+// suppresses the reflexive "mention a name, get a photo" behaviour for that
+// specific case, without touching normal "show me the Murano Queen" requests
+// (IMAGE_REQUEST_HINT above still overrides this suppression when present).
+const MEASUREMENT_ANSWER_PATTERN = /\b\d+(\.\d+)?\s*(ft|feet|foot|'|inches?|inch|"|cm|centimet(er|re)s?|met(er|re)s?|m)\b/i;
+
 function matchProducts(text) {
     const seen = new Set();
     const matches = [];
@@ -847,11 +856,17 @@ function matchProducts(text) {
 // exchange, not several turns back.
 export function getRelevantImages(message, history) {
     const lowerMessage = (message || '').toLowerCase();
+    const hasVisualIntent = IMAGE_REQUEST_HINT.test(lowerMessage);
+
+    // e.g. "Murano Queen, and the wall is 8ft high" answering a form
+    // question -- skip image matching entirely unless they also explicitly
+    // asked to see something in the same message.
+    if (MEASUREMENT_ANSWER_PATTERN.test(lowerMessage) && !hasVisualIntent) return [];
 
     const directMatches = matchProducts(lowerMessage);
     if (directMatches.length > 0) return directMatches;
 
-    if (!IMAGE_REQUEST_HINT.test(lowerMessage)) return [];
+    if (!hasVisualIntent) return [];
 
     const lastTurnText = Array.isArray(history)
         ? history.slice(-2).map(m => (m && m.content) ? m.content : '').join(' ').toLowerCase()
