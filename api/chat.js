@@ -225,6 +225,22 @@ async function callGemini(apiKey, requestBody) {
 
     const data = await geminiRes.json();
 
+    // Gemini 3.x models spend part of max_completion_tokens on internal
+    // "thinking" before writing the visible reply -- if thinking consumes
+    // most/all of the budget, finish_reason comes back as "length" with a
+    // partial (or empty) message, and nothing about the HTTP response itself
+    // looks like an error. Logging this is the only way to actually see it
+    // happening, rather than just observing "replies are sometimes cut" with
+    // no lead on why.
+    const finishReason = data?.choices?.[0]?.finish_reason;
+    if (finishReason === 'length') {
+        console.warn(
+            'Gemini reply hit the token limit before finishing (finish_reason: length) — ' +
+            'likely the thinking/reasoning budget ate most or all of max_completion_tokens. ' +
+            'usage:', JSON.stringify(data.usage || {})
+        );
+    }
+
     if (
         !data.choices ||
         !data.choices[0] ||
@@ -557,16 +573,30 @@ export default async function handler(req, res) {
                 ...toGeminiHistory(history || []),
                 { role: 'user', content: message.trim() }
             ],
-            // temperature/top_p deliberately omitted -- Google deprecated both
-            // sampling parameters for the 3.5/3.6 GA model generation this bot
-            // now uses; sending them is no longer meaningful for this model.
-            max_completion_tokens: 800, // verify after a live call that Gemini's
-                                         // compat layer actually honours this the
-                                         // same way Groq did -- Google's own docs
-                                         // don't show it in any example, so this
-                                         // is carried over on the assumption the
-                                         // OpenAI-compat layer maps it, not confirmed.
-            reasoning_effort: 'low',    // keep it fast/cheap for a real-time chat widget
+            // temperature/top_p deliberately omitted -- confirmed via Google's
+            // own docs: no longer recommended for any Gemini 3.x model.
+            //
+            // max_completion_tokens: Gemini 3.x models spend part of this
+            // budget on internal "thinking" before writing the visible reply,
+            // and thinking + visible output share ONE pool -- unlike some
+            // other providers, the thinking cost is not separate from this cap.
+            // Per Google's OpenAI-compat docs, reasoning_effort "low" maps to
+            // roughly a 1,000-token thinking budget. The previous value here
+            // (800) was smaller than that alone, so on anything non-trivial
+            // the model could exhaust the entire budget mid-thought and never
+            // get to write the answer -- this is the actual cause of replies
+            // getting cut off. Raised well above the thinking budget so there's
+            // real headroom left for the reply itself (~120 words ≈ 200 tokens,
+            // more if a cabinetry estimate breakdown is included).
+            max_completion_tokens: 3000,
+            // Flash-family Gemini 3.x models reportedly also accept "minimal"
+            // (even lower thinking budget than "low"), per third-party reports —
+            // but only low/medium/high appear in Google's own official docs, so
+            // sticking with the confirmed value here rather than risking a
+            // rejected request on an unverified one. Worth live-testing
+            // reasoning_effort: 'minimal' separately once this fix is confirmed
+            // working, if you want to trim cost/latency further.
+            reasoning_effort: 'low',
             stream: false
         };
 
