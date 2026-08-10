@@ -45,7 +45,7 @@ const KNOWLEDGE_MODULES = [
     { key: 'wardrobe', test: /wardrobe|closet|clothes|storage|walk-in|cabinet/, fn: getWardrobeKnowledge },
     { key: 'showroom', test: /showroom|visit|location|address|trx|maison|appointment|open|hour/, fn: getShowroomKnowledge },
     { key: 'warranty', test: /warranty|guarantee|claim|repair|after.?sales|defect/, fn: getWarrantyKnowledge },
-    { key: 'renovation', test: /renovation|interior|design|house|condo|budget|layout|floor plan/, fn: getRenovationKnowledge },
+    { key: 'renovation', test: /renovation|interior|design|house|condo|budget|layout|floor plan|material|panel|laminate|formaldehyde|\bENF\b|finish(es|ing)?|champagne luxe|walnut cocoa|glacier mirror/i, fn: getRenovationKnowledge },
     {
         key: 'basicFurniture',
         // NOTE: this list must stay in sync with the model names actually named
