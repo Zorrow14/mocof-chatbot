@@ -1,8 +1,8 @@
 // =============================================================
 // FILE: api/chat.js
-// Vercel Serverless Function — handles all Groq API calls
+// Vercel Serverless Function — handles all Gemini API calls
 // Endpoint: POST /api/chat
-// API Keys: GROQ_API_KEY in Vercel env vars
+// API Keys: GEMINI_API_KEY in Vercel env vars
 // =============================================================
 
 import { getRenovationKnowledge } from '../knowledge/renovation.js';
@@ -17,8 +17,10 @@ import { getBasicFurnitureKnowledge } from '../knowledge/basicfurniture.js';
 import { getCabinetryKnowledge, calculateCabinetPrice } from '../knowledge/cabinetry.js';
 import { getRelevantImages } from '../knowledge/productImages.js';
 
-const GROQ_URL = 'https://api.groq.com/openai/v1/chat/completions';
-const GROQ_MODEL = 'openai/gpt-oss-20b';
+// Gemini's OpenAI-compatible endpoint -- same request/response shape as the
+// Groq endpoint this replaced, so the rest of this file barely had to change.
+const GEMINI_URL = 'https://generativelanguage.googleapis.com/v1beta/openai/chat/completions';
+const GEMINI_MODEL = 'gemini-3.5-flash-lite';
 
 // ── Detect which knowledge bases are relevant ─────────────────
 // IMPORTANT: this looks at the last few turns of history too, not just the
@@ -59,11 +61,14 @@ const KNOWLEDGE_MODULES = [
     }
 ];
 
-// Groq's free-tier TPM cap (8,000 for the model this bot uses) can be exceeded by
-// a SINGLE request if every matched knowledge category gets concatenated at once —
-// a normal multi-need message ("renovating my kitchen, need a wardrobe, wall bed,
-// dining table...") can touch 6+ categories, ballooning the system prompt past the
-// entire per-minute budget by itself. Capping the count keeps any one request bounded.
+// Keeps the system prompt bounded regardless of provider or tier -- a normal
+// multi-need message ("renovating my kitchen, need a wardrobe, wall bed,
+// dining table...") can touch 6+ categories, which would otherwise balloon a
+// single request. This was originally sized around Groq's 8,000 TPM cap;
+// Gemini's free tier is generous on TPM but tight on RPM/RPD instead (a
+// request-count limit, not a token-volume one), so this cap still helps
+// keep replies fast and cheap even though it isn't solving the same problem
+// it was written for.
 const MAX_KNOWLEDGE_MODULES = 3;
 
 function getRelevantKnowledge(message, history) {
@@ -195,13 +200,13 @@ CRITICAL — GROUNDING (this section overrides anything above if there's ever a 
 }
 
 // ── API key ──────────────────────────────────────────────────
-function getGroqApiKeys() {
-    return [process.env.GROQ_API_KEY]
+function getGeminiApiKeys() {
+    return [process.env.GEMINI_API_KEY]
         .filter(key => typeof key === 'string' && key.trim() !== '');
 }
 
-async function callGroq(apiKey, requestBody) {
-    const groqRes = await fetch(GROQ_URL, {
+async function callGemini(apiKey, requestBody) {
+    const geminiRes = await fetch(GEMINI_URL, {
         method: 'POST',
         headers: {
             'Content-Type': 'application/json',
@@ -210,15 +215,15 @@ async function callGroq(apiKey, requestBody) {
         body: JSON.stringify(requestBody)
     });
 
-    if (!groqRes.ok) {
-        const errText = await groqRes.text();
-        const err = new Error(`Groq API error: ${groqRes.status}`);
-        err.status = groqRes.status;
+    if (!geminiRes.ok) {
+        const errText = await geminiRes.text();
+        const err = new Error(`Gemini API error: ${geminiRes.status}`);
+        err.status = geminiRes.status;
         err.details = errText;
         throw err;
     }
 
-    const data = await groqRes.json();
+    const data = await geminiRes.json();
 
     if (
         !data.choices ||
@@ -226,7 +231,7 @@ async function callGroq(apiKey, requestBody) {
         !data.choices[0].message ||
         !data.choices[0].message.content
     ) {
-        const err = new Error('Invalid response from Groq');
+        const err = new Error('Invalid response from Gemini');
         err.status = 502;
         throw err;
     }
@@ -234,14 +239,16 @@ async function callGroq(apiKey, requestBody) {
     return data.choices[0].message.content;
 }
 
-// ── Convert history to OpenAI/Groq format ────────────────────
+// ── Convert history to OpenAI-compatible format ───────────────
+// This is a standard OpenAI-shape message list, not a Groq-specific format --
+// it works unchanged against Gemini's OpenAI-compatible endpoint too.
 // Capped independently of whatever the client sends (the widget keeps up to 40
 // messages client-side for display) — recent turns carry the useful context;
 // sending the full 40 every single request adds unbounded, mostly-redundant
 // token cost on top of the per-request knowledge-module cap above.
 const MAX_HISTORY_TURNS_SENT_TO_MODEL = 12;
 
-function toGroqHistory(history) {
+function toGeminiHistory(history) {
     if (!Array.isArray(history)) return [];
     return history
         .slice(-MAX_HISTORY_TURNS_SENT_TO_MODEL)
@@ -525,10 +532,10 @@ export default async function handler(req, res) {
     }
 
     // ── Read API keys ─────────────────────────────────────────
-    const apiKeys = getGroqApiKeys();
+    const apiKeys = getGeminiApiKeys();
 
     if (apiKeys.length === 0) {
-        console.error('No Groq API keys set — configure GROQ_API_KEY in Vercel');
+        console.error('No Gemini API keys set — configure GEMINI_API_KEY in Vercel');
         return res.status(500).json({
             error: 'Server configuration error — API key missing'
         });
@@ -541,19 +548,25 @@ export default async function handler(req, res) {
         return res.status(400).json({ error: 'message is required' });
     }
 
-    // ── Build & send Groq request ─────────────────────────────
+    // ── Build & send Gemini request ───────────────────────────
     try {
         const requestBody = {
-            model: GROQ_MODEL,
+            model: GEMINI_MODEL,
             messages: [
                 { role: 'system', content: buildSystemPrompt(message, history) },
-                ...toGroqHistory(history || []),
+                ...toGeminiHistory(history || []),
                 { role: 'user', content: message.trim() }
             ],
-            temperature: 0.7,
-            max_completion_tokens: 800, // gpt-oss reasoning tokens count against this budget too
+            // temperature/top_p deliberately omitted -- Google deprecated both
+            // sampling parameters for the 3.5/3.6 GA model generation this bot
+            // now uses; sending them is no longer meaningful for this model.
+            max_completion_tokens: 800, // verify after a live call that Gemini's
+                                         // compat layer actually honours this the
+                                         // same way Groq did -- Google's own docs
+                                         // don't show it in any example, so this
+                                         // is carried over on the assumption the
+                                         // OpenAI-compat layer maps it, not confirmed.
             reasoning_effort: 'low',    // keep it fast/cheap for a real-time chat widget
-            top_p: 0.95,
             stream: false
         };
 
@@ -561,10 +574,10 @@ export default async function handler(req, res) {
         let lastError = null;
 
         try {
-            reply = await callGroq(apiKeys[0], requestBody);
+            reply = await callGemini(apiKeys[0], requestBody);
         } catch (err) {
             lastError = err;
-            console.error('Groq key failed:', err.status || 'network', err.details || err.message);
+            console.error('Gemini key failed:', err.status || 'network', err.details || err.message);
         }
 
         // Backstop for the CRITICAL — IMAGES system-prompt rule: strips any sentence
@@ -585,7 +598,7 @@ export default async function handler(req, res) {
 
         const status = lastError?.status && lastError.status >= 400 ? lastError.status : 502;
         return res.status(status === 429 ? 502 : status).json({
-            error: 'Groq API error',
+            error: 'Gemini API error',
             details: lastError?.details || lastError?.message || 'All API keys failed'
         });
 
