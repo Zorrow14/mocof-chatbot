@@ -20,7 +20,7 @@ import { getRelevantImages } from '../knowledge/productImages.js';
 // Gemini's OpenAI-compatible endpoint -- same request/response shape as the
 // Groq endpoint this replaced, so the rest of this file barely had to change.
 const GEMINI_URL = 'https://generativelanguage.googleapis.com/v1beta/openai/chat/completions';
-const GEMINI_MODEL = 'gemini-3.5-flash-lite';
+const GEMINI_MODEL = 'gemini-3.5-flash';
 
 // ── Detect which knowledge bases are relevant ─────────────────
 // IMPORTANT: this looks at the last few turns of history too, not just the
