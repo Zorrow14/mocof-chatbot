@@ -596,79 +596,6 @@ function findHallucinatedPrices(reply, userMessage, extraKnownAmounts = []) {
 
 const SAFE_FALLBACK_REPLY = "I want to make sure I give you accurate pricing rather than guess — let me connect you with our team directly. Please reach out on **WhatsApp** at +60 12-568 4568 and they'll confirm the exact options and prices for you. Is there anything else I can help with in the meantime?";
 
-// ── Origin allowlist ────────────────────────────────────────
-// Browsers attach a real `Origin` header on cross-origin fetch() calls, so
-// this blocks the common case of another site embedding/calling this
-// endpoint from client-side JS on a domain that isn't yours.
-// NOT real authentication: a non-browser client (curl, a script,
-// server-to-server) can set ANY Origin header it likes, since the browser is
-// what normally enforces this, not this server. The rate limiter below is
-// what actually protects cost/quota against a determined abuser — this is
-// just a cheap first filter.
-const ALLOWED_ORIGINS = [
-    'https://www.mocof.com.my',
-    'https://mocof.com.my',
-    // Add the Wix editor/preview domain here too if you test the widget
-    // embedded inside the Wix editor itself, e.g. 'https://editor.wix.com'
-];
-
-function resolveAllowedOrigin(req) {
-    const origin = req.headers.origin;
-    if (!origin) return null; // no Origin header at all -- curl/server-to-server, not a browser
-    return ALLOWED_ORIGINS.includes(origin) ? origin : null;
-}
-
-// ── Rate limiting ────────────────────────────────────────────
-// Protects both Gemini billing and the free-tier RPM/RPD caps mentioned
-// above -- a handful of abusive requests from one source can otherwise burn
-// the whole day's request budget before a single real customer gets a reply.
-//
-// Prefers Upstash Redis (works correctly across Vercel's many parallel,
-// short-lived function instances -- see setup instructions for
-// UPSTASH_REDIS_REST_URL / UPSTASH_REDIS_REST_TOKEN). Falls back to a
-// per-instance in-memory Map when those env vars aren't set, so local
-// `vercel dev` still works with zero setup -- but the in-memory version
-// resets on every cold start and isn't shared across instances, so treat it
-// as a soft stopgap, not real protection, once this is deployed with real
-// traffic. Set the Upstash env vars before relying on this in production.
-let upstashLimiter = null;
-if (process.env.UPSTASH_REDIS_REST_URL && process.env.UPSTASH_REDIS_REST_TOKEN) {
-    const { Ratelimit } = await import('@upstash/ratelimit');
-    const { Redis } = await import('@upstash/redis');
-    upstashLimiter = new Ratelimit({
-        redis: Redis.fromEnv(),
-        limiter: Ratelimit.slidingWindow(10, '1 m'), // 10 requests / minute / IP
-        analytics: true,
-        prefix: 'mocof-chat'
-    });
-}
-
-const inMemoryHits = new Map(); // ip -> timestamps[], only used when Upstash isn't configured
-const IN_MEMORY_WINDOW_MS = 60_000;
-const IN_MEMORY_MAX = 10;
-
-function getClientIp(req) {
-    const fwd = req.headers['x-forwarded-for'];
-    if (typeof fwd === 'string' && fwd.length > 0) return fwd.split(',')[0].trim();
-    return req.socket?.remoteAddress || 'unknown';
-}
-
-async function isRateLimited(ip) {
-    if (upstashLimiter) {
-        const { success } = await upstashLimiter.limit(ip);
-        return !success;
-    }
-    const now = Date.now();
-    const hits = (inMemoryHits.get(ip) || []).filter(t => now - t < IN_MEMORY_WINDOW_MS);
-    if (hits.length >= IN_MEMORY_MAX) {
-        inMemoryHits.set(ip, hits);
-        return true;
-    }
-    hits.push(now);
-    inMemoryHits.set(ip, hits);
-    return false;
-}
-
 // Backstop for the CRITICAL — IMAGES system-prompt rule: strips any sentence
 // that still claims an inability to show/display/send a photo, in case the
 // model slips one through despite the instruction (same "verify in code,
@@ -692,15 +619,9 @@ function stripImageDisclaimers(text) {
 export default async function handler(req, res) {
 
     // ── CORS headers ──────────────────────────────────────────
-    // Reflects the Origin back only when it's on the allowlist above,
-    // instead of the old '*' -- 'Vary: Origin' tells caches/CDNs this
-    // response differs per requesting origin, so one visitor's allowed
-    // response never gets cached and served to a disallowed origin.
-    const allowedOrigin = resolveAllowedOrigin(req);
-    res.setHeader('Access-Control-Allow-Origin', allowedOrigin || 'null');
+    res.setHeader('Access-Control-Allow-Origin', '*');
     res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
     res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
-    res.setHeader('Vary', 'Origin');
 
     if (req.method === 'OPTIONS') {
         return res.status(200).end();
@@ -708,22 +629,6 @@ export default async function handler(req, res) {
 
     if (req.method !== 'POST') {
         return res.status(405).json({ error: 'Method not allowed' });
-    }
-
-    // Reject browser requests carrying an Origin we don't recognize.
-    // Requests with NO Origin header (curl, server-to-server) fall through
-    // to here too -- the rate limiter just below is what actually protects
-    // against those, since Origin can be spoofed by anything that isn't a
-    // real browser enforcing same-origin rules.
-    if (req.headers.origin && !allowedOrigin) {
-        return res.status(403).json({ error: 'Forbidden origin' });
-    }
-
-    // ── Rate limiting ────────────────────────────────────────
-    const clientIp = getClientIp(req);
-    if (await isRateLimited(clientIp)) {
-        res.setHeader('Retry-After', '60');
-        return res.status(429).json({ error: 'Too many requests — please wait a moment and try again.' });
     }
 
     // ── Read API keys ─────────────────────────────────────────

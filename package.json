@@ -8,8 +8,7 @@
     "build": "echo 'No build step required'"
   },
   "dependencies": {
-    "@upstash/ratelimit": "^2.0.5",
-    "@upstash/redis": "^1.34.3"
+    "node-fetch": "^3.3.2"
   },
   "engines": {
     "node": "20.x"
