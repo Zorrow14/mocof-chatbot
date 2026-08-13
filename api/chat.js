@@ -544,11 +544,24 @@ function formatRM(n) {
     return `RM ${n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 }
 
+// Only trigger the pre-calculated pricing block when the CURRENT message
+// actually asks about price/cost/estimate -- per explicit instruction, the
+// bot must not proactively volunteer pricing just because it already has
+// enough measurements to compute one. This is a best-effort keyword check
+// on the current message only (same "best-effort text parsing, not a
+// robust NLU layer" philosophy as the other extractors in this file) --
+// a bare "yes" replying to the bot's own offer to calculate a price
+// wouldn't match this, which is a known, accepted limitation.
+const PRICE_INTENT_PATTERN = /\b(how much|price|cost|costs|estimate|quote|total|budget)\b/i;
+
 // Builds a ready-made, already-correct breakdown to inject into the system
-// prompt when we have enough measurements. The model is told to relay these
-// exact figures rather than compute them itself — this removes reliance on
-// the model's arithmetic entirely, not just the after-the-fact guard check.
+// prompt when we have enough measurements AND the customer actually asked
+// for pricing this turn. The model is told to relay these exact figures
+// rather than compute them itself — this removes reliance on the model's
+// arithmetic entirely, not just the after-the-fact guard check.
 function buildCabinetryEstimateBlock(message, history) {
+    if (!PRICE_INTENT_PATTERN.test((message || '').toLowerCase())) return '';
+
     const est = getCabinetryEstimateFromContext(message, history);
     if (!est) return '';
 
@@ -562,8 +575,8 @@ function buildCabinetryEstimateBlock(message, history) {
     }
 
     lines.push(
-        `- Side cabinets: ${formatRM(est.sideCostPerSide)} per side × ${est.sides} side(s) = ${formatRM(est.sideCostTotal)} (leftover wall width used: ${est.sideCabinetWidthFt}ft per side)`,
-        `- Overhead cabinet (${est.bedWidthFt}ft wide, based on the ${est.wallBedModelLabel || est.bedModelLabel} you've been discussing): ${formatRM(est.topCost)}`
+        `- Side cabinets: ${formatRM(est.sideCostPerSide)} per side × ${est.sides} side(s) = ${formatRM(est.sideCostTotal)} (leftover wall width used: ${est.sideCabinetWidthFt}ft per side; built up to ${est.sideCabinetMaxHeightFt}ft tall)`,
+        `- Overhead cabinet (${est.bedWidthFt}ft wide, based on the ${est.wallBedModelLabel || est.bedModelLabel} you've been discussing; built up to ${est.overheadCabinetMaxHeightFt}ft tall): ${formatRM(est.topCost)}`
     );
     if (est.exceedsStandard) {
         lines.push(`- Excess-height surcharge (wall is ${est.heightFt}ft, over the 9ft standard; full wall width ${est.totalWidthFt}ft): ${formatRM(est.exceedingCost)}`);
