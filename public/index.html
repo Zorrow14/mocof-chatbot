@@ -141,6 +141,7 @@
     display: flex; 
     flex-direction: column; 
     max-width: 80%; 
+    min-width: 0; /* lets content (e.g. a wide table) shrink/scroll instead of overflowing the row */
   }
   .mrow.user .mcol { 
     align-items: flex-end; 
@@ -171,6 +172,50 @@
     border-radius: 14px 3px 14px 14px;
   }
   .mtime { font-size: 10px; color: #999999; margin-top: 3px; padding: 0 3px; }
+
+  /* ── STRUCTURED BOT CONTENT (paragraphs / lists / tables) ──
+     fmt() below turns a constrained Markdown subset into these elements.
+     Nested block elements get white-space: normal so ordinary browser
+     text-flow/wrapping applies to them, instead of inheriting the
+     bubble's pre-wrap (which is meant for plain paragraph line breaks). */
+  .bubble.bot .mpara {
+    margin: 0 0 6px; white-space: normal;
+  }
+  .bubble.bot .mpara:last-child { margin-bottom: 0; }
+
+  .bubble.bot .mlist {
+    margin: 2px 0 6px 18px; padding: 0; white-space: normal;
+  }
+  .bubble.bot .mlist:last-child { margin-bottom: 0; }
+  .bubble.bot .mlist li { margin: 2px 0; }
+
+  /* Scrolls horizontally if a table is wider than the bubble, rather than
+     being silently clipped by .msgs's overflow-x: hidden. */
+  .bubble.bot .mtbl-wrap {
+    overflow-x: auto; max-width: 100%; margin: 4px 0 6px;
+    -webkit-overflow-scrolling: touch;
+  }
+  .bubble.bot .mtbl-wrap:last-child { margin-bottom: 0; }
+  .bubble.bot table.mtbl {
+    border-collapse: collapse; min-width: 100%; width: max-content;
+    max-width: 100%; font-size: 12px; white-space: normal;
+  }
+  .bubble.bot table.mtbl th,
+  .bubble.bot table.mtbl td {
+    border: 1px solid #dddddd; padding: 4px 7px;
+    text-align: left; vertical-align: top;
+  }
+  .bubble.bot table.mtbl th {
+    background: #e6e6e6; font-weight: 600;
+  }
+  .bubble.bot table.mtbl tr:nth-child(even) td {
+    background: #fafafa;
+  }
+
+  /* Classic flexbox overflow fix: without this, a flex row item's default
+     min-width:auto stops it shrinking below its content's natural size,
+     which would push a wide table out past the popup instead of letting
+     the .mtbl-wrap scrollbar above handle it — see .mcol's min-width:0. */
 
   /* ── TYPING ── */
   .trow { display: flex; align-items: flex-end; gap: 7px; }
@@ -502,12 +547,91 @@ function esc(t) {
     .replace(/"/g,'&quot;').replace(/'/g,'&#39;').replace(/\n/g,'<br>');
 }
 
-/* Escape first, then render Markdown bold only (no italics) */
-function fmt(t) {
-  return esc(t)
-    .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
-    .replace(/__([^_]+)__/g, '<strong>$1</strong>')
-    .replace(/\*/g, '');
+/* Render a constrained Markdown subset: bold, numbered lists, bullet
+   lists, and pipe tables. Text is escaped line-by-line via esc() before
+   any tag is added, so the only HTML that can appear is the structural
+   markup this function builds itself -- never raw text from the model. */
+function fmt(raw) {
+  var lines = String(raw).replace(/\r\n/g, '\n').split('\n');
+  var out = '';
+  var i = 0;
+
+  var TABLE_SEP = /^\s*\|?\s*:?-{2,}:?\s*(\|\s*:?-{2,}:?\s*)+\|?\s*$/;
+  var NUM_ITEM  = /^\s*\d+[.)]\s+(.*)$/;
+  var BUL_ITEM  = /^\s*[-•]\s+(.*)$/;
+
+  function inline(s) {
+    return esc(s)
+      .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
+      .replace(/__([^_]+)__/g, '<strong>$1</strong>')
+      .replace(/\*/g, '');
+  }
+
+  function splitRow(line) {
+    var t = line.trim().replace(/^\|/, '').replace(/\|$/, '');
+    return t.split('|').map(function (c) { return c.trim(); });
+  }
+
+  function isTableStart(idx) {
+    return lines[idx].indexOf('|') !== -1 &&
+      idx + 1 < lines.length && TABLE_SEP.test(lines[idx + 1]);
+  }
+
+  while (i < lines.length) {
+    if (lines[i].trim() === '') { i++; continue; }
+
+    // ── Table block ──
+    if (isTableStart(i)) {
+      var header = splitRow(lines[i]);
+      i += 2; // skip header + separator row
+      var rows = [];
+      while (i < lines.length && lines[i].trim() !== '' && lines[i].indexOf('|') !== -1) {
+        rows.push(splitRow(lines[i]));
+        i++;
+      }
+      out += '<div class="mtbl-wrap"><table class="mtbl"><thead><tr>' +
+        header.map(function (c) { return '<th>' + inline(c) + '</th>'; }).join('') +
+        '</tr></thead><tbody>' +
+        rows.map(function (r) {
+          return '<tr>' + r.map(function (c) { return '<td>' + inline(c) + '</td>'; }).join('') + '</tr>';
+        }).join('') +
+        '</tbody></table></div>';
+      continue;
+    }
+
+    // ── Numbered list block ──
+    if (NUM_ITEM.test(lines[i])) {
+      var oitems = [];
+      while (i < lines.length && NUM_ITEM.test(lines[i])) {
+        oitems.push('<li>' + inline(lines[i].match(NUM_ITEM)[1]) + '</li>');
+        i++;
+      }
+      out += '<ol class="mlist">' + oitems.join('') + '</ol>';
+      continue;
+    }
+
+    // ── Bullet list block ──
+    if (BUL_ITEM.test(lines[i])) {
+      var uitems = [];
+      while (i < lines.length && BUL_ITEM.test(lines[i])) {
+        uitems.push('<li>' + inline(lines[i].match(BUL_ITEM)[1]) + '</li>');
+        i++;
+      }
+      out += '<ul class="mlist">' + uitems.join('') + '</ul>';
+      continue;
+    }
+
+    // ── Plain paragraph: consecutive plain lines joined with <br> ──
+    var para = [];
+    while (i < lines.length && lines[i].trim() !== '' && !isTableStart(i) &&
+           !NUM_ITEM.test(lines[i]) && !BUL_ITEM.test(lines[i])) {
+      para.push(inline(lines[i]));
+      i++;
+    }
+    out += '<p class="mpara">' + para.join('<br>') + '</p>';
+  }
+
+  return out;
 }
 </script>
 </body>

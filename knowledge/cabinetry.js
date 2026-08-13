@@ -206,12 +206,18 @@ PRESENTATION RULES:
   excess-height surcharge if applicable), then the cabinetry subtotal, then the combined
   GRAND TOTAL — don't just state a lump sum, and don't state the cabinetry subtotal as
   if it were the final price on its own.
+- Format the breakdown as a bullet list (one "- " line per item — e.g. "- Wall bed
+  (Murano Queen Sofa): RM 23,698.11") or, if you prefer, as a small two-column Markdown
+  table (Item | Cost). Either is fine — just don't run the line items together in one
+  paragraph, since a breakdown like this is exactly the kind of content that should be
+  structured, not prose.
 - Always label it as an ESTIMATE and close with: "This is an estimate — please confirm
   the exact quote with our team on WhatsApp at +60 12-568 4568, as final pricing depends
   on a site survey."
 - Never guess a customer's wall height, wall bed width, wall bed model, or total wall
   width — always ask (the wall bed model can also be picked up from earlier in the
-  conversation if already established).
+  conversation if already established). If more than one of these is still missing,
+  ask for them as a numbered list rather than one long sentence.
 - If a customer only has one side available (corner installation, adjacent fixture, etc.),
   use sides = 1 in the calculation and say so explicitly in the breakdown.
 `;

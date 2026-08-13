@@ -1,6 +1,6 @@
 # MOCOF Chatbot
 
-> A lightweight chatbot for MOCOF (Malaysian furniture & interior design) that runs as a Vercel serverless app and uses the Gemini chat API.
+> A lightweight chatbot for MOCOF (Malaysian furniture & interior design) that runs as a Vercel serverless app and uses the Gemini (Google) OpenAI-compatible chat API.
 
 ## Overview
 
@@ -72,7 +72,7 @@ Other implementation notes:
 
 | File | Exports | Notes |
 |---|---|---|
-| `wallbeds.js` | `getWallBedKnowledge()`, `WALLBED_MODEL_WIDTHS_FT` | The width lookup is structured data (not just prompt text) — it's imported directly by `chat.js` to derive a wall bed's width from whichever model has been discussed, so the bot never has to ask a customer for that spec. |
+| `wallbeds.js` | `getWallBedKnowledge()`, `WALLBED_MODEL_WIDTHS_FT`, `WALLBED_MODEL_PRICING` | The width lookup and the granular pricing table are structured data (not just prompt text) — they're imported directly by `chat.js` to derive a wall bed's width and sale/retail prices from whichever model has been discussed, so the bot never has to ask a customer for that spec or price. |
 | `sofabeds.js` | `getSofaBedKnowledge()` | |
 | `tables.js` | `getTableKnowledge()` | |
 | `kitchen.js` | `getKitchenKnowledge()` | |
