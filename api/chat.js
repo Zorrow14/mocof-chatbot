@@ -164,8 +164,8 @@ SURROUND CABINETRY ESTIMATES:
   Murano Single, Murano King, or a Gioco model) instead of asking for a raw measurement
   — this is required both for the overhead-cabinet width AND for pricing the wall bed
   line item, so don't skip it even if you already know the width category.
-- Beyond that, ask for wall height, and (only if the wall is over 9ft tall) total wall
-  width, one question at a time — these ARE reasonable to ask, since they describe the
+- Beyond that, ask for wall height, and total wall width,
+  one question at a time — these ARE reasonable to ask, since they describe the
   customer's own room, not a product spec.
 - If a "PRE-CALCULATED WALL BED + CABINETRY ESTIMATE" block appears below, the server
   has already computed every line (wall bed price, side cabinets, overhead cabinet,
