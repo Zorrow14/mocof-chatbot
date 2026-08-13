@@ -6,7 +6,7 @@
 // =============================================================
 
 import { getRenovationKnowledge } from '../knowledge/renovation.js';
-import { getWallBedKnowledge, WALLBED_MODEL_WIDTHS_FT } from '../knowledge/wallbeds.js';
+import { getWallBedKnowledge, WALLBED_MODEL_WIDTHS_FT, WALLBED_MODEL_PRICING } from '../knowledge/wallbeds.js';
 import { getSofaBedKnowledge } from '../knowledge/sofabeds.js';
 import { getTableKnowledge } from '../knowledge/tables.js';
 import { getKitchenKnowledge } from '../knowledge/kitchen.js';
@@ -146,28 +146,45 @@ After all collected → summarise and say: "Thank you! Please reach out to our d
 - If the customer only wants to buy a single product (e.g. "I just wanna buy a wall bed") rather than a full renovation, do NOT run this lead collection flow — just help them with the product directly.
 
 SURROUND CABINETRY ESTIMATES:
-- When a customer asks about adding cabinets/storage around a wall bed, treat it as
-  surround cabinetry by default — confirm it's possible, then walk through the formula
-  in the KNOWLEDGE BASE section above.
+- When a customer asks about adding cabinets/storage around a wall bed, OR asks for the
+  "estimated price" / "total price" / "how much in total" for a wall bed + cabinetry
+  project, treat it as surround cabinetry by default — confirm it's possible, then walk
+  through the formula in the KNOWLEDGE BASE section above.
+- THE FINAL TOTAL YOU QUOTE IS ALWAYS TWO PARTS ADDED TOGETHER: the price of the
+  customer's chosen wall bed model (sale price) PLUS the surround-cabinetry cost you
+  calculate from the formula. Never quote the cabinetry subtotal alone as if it were the
+  full estimate, and never quote the wall bed price alone once cabinetry has been
+  discussed — always show both line items and their sum.
 - NEVER ask the customer directly for the wall bed's own width — they likely don't know
   that spec, especially if they haven't bought a wall bed yet. Instead, check whether a
   wall bed MODEL has already been established in this conversation (either they named
-  one, or you already recommended one) — its width is looked up automatically. If no
-  model has been established yet, ask which model they're considering (Murano Queen,
-  Murano Single, Murano King, or a Gioco model) instead of asking for a raw measurement.
+  one, or you already recommended one) — its width AND price are looked up
+  automatically. If no model has been established yet, ask which model they're
+  considering (Murano Queen, Murano Queen Sofa, Murano Queen Desk, Murano Queen Shelves,
+  Murano Single, Murano King, or a Gioco model) instead of asking for a raw measurement
+  — this is required both for the overhead-cabinet width AND for pricing the wall bed
+  line item, so don't skip it even if you already know the width category.
 - Beyond that, ask for wall height, and (only if the wall is over 9ft tall) total wall
   width, one question at a time — these ARE reasonable to ask, since they describe the
   customer's own room, not a product spec.
-- If a "PRE-CALCULATED CABINETRY ESTIMATE" block appears below, the server has already
-  computed it from this customer's own measurements — present those EXACT figures as
-  the breakdown. Do NOT recalculate, re-round, or adjust them yourself.
+- If a "PRE-CALCULATED WALL BED + CABINETRY ESTIMATE" block appears below, the server
+  has already computed every line (wall bed price, side cabinets, overhead cabinet,
+  excess-height surcharge if any, cabinetry subtotal, and the GRAND TOTAL) from this
+  customer's own chosen model and measurements — present ALL of those EXACT figures,
+  in that order, ending with the GRAND TOTAL as the headline number. Do NOT recalculate,
+  re-round, adjust, or drop any line yourself — especially do not drop the wall bed
+  price line and only show the cabinetry subtotal.
 - If no such block appears, you don't have everything needed yet — keep asking for
   whichever of wall bed model / wall height / total wall width (if applicable) is still
-  missing. Do not guess or estimate a total from memory before that's all collected.
+  missing. Do not guess or estimate a total from memory before that's all collected, and
+  do not state a total using only the cabinetry portion while the wall bed portion is
+  still missing.
 - Always label it as an estimate confirmed via WhatsApp/site survey.
-- This is the ONE place where you may state a price that isn't literally written in the
-  knowledge base — because it's a live calculation from the customer's own measurements,
-  not an invented number. Do not use this as license to estimate prices anywhere else.
+- This is the ONE place where you may state a price that isn't literally written
+  character-for-character in the knowledge base as a single line — because it's a live
+  calculation (wall bed price + cabinetry formula) from the customer's own choices and
+  measurements, not an invented number. Do not use this as license to estimate prices
+  anywhere else.
 ${buildCabinetryEstimateBlock(message, history)}
 
 CRITICAL — IMAGES:
@@ -395,6 +412,25 @@ function extractSelectedWallBedModel(history, message) {
     return selected;
 }
 
+// Same scanning approach as extractSelectedWallBedModel above, but against the
+// more granular WALLBED_MODEL_PRICING table — needed because several models
+// share a width (and so agree under the coarser table) while having very
+// different prices (e.g. Murano Queen vs. Murano Queen Sofa). Used to price
+// the "wall bed" line item in a combined wall-bed + cabinetry estimate.
+function extractSelectedWallBedPricing(history, message) {
+    const priorTurns = Array.isArray(history) ? history.slice(-10) : [];
+    const turns = [...priorTurns, { role: 'user', content: message }];
+    let selected = null;
+    for (const turn of turns) {
+        if (!turn || !turn.content) continue;
+        const text = turn.content.toLowerCase();
+        for (const model of WALLBED_MODEL_PRICING) {
+            if (model.pattern.test(text)) selected = model; // last mention (either role) wins
+        }
+    }
+    return selected;
+}
+
 function extractCabinetryDimensions(history, message) {
     const priorTurns = Array.isArray(history) ? history.slice(-10) : [];
     const turns = [...priorTurns, { role: 'user', content: message }];
@@ -454,10 +490,32 @@ function getCabinetryEstimateFromContext(message, history) {
             totalWallWidthFt: totalWidthFt ?? undefined
         });
 
-        return { heightFt, bedWidthFt: selectedModel.widthFt, bedModelLabel: selectedModel.label, totalWidthFt, ...result };
+        // The customer's FINAL total for a "wall bed + surround cabinetry"
+        // project is the wall bed's own price PLUS the cabinetry cost just
+        // computed above — resolve the specific chosen model (not just its
+        // width category) against the granular price table so variants that
+        // share a width but differ in price (Murano Queen vs. Queen Sofa,
+        // etc.) are priced correctly. Sale price is used as "the price" here,
+        // matching how sale prices are quoted elsewhere in this file (see
+        // PRODUCT RECOMMENDATION RULES).
+        const pricedModel = extractSelectedWallBedPricing(history, message);
+        const wallBedSalePrice = pricedModel ? round2(pricedModel.sale) : null;
+        const wallBedRetailPrice = pricedModel ? round2(pricedModel.retail) : null;
+        const grandTotal = wallBedSalePrice !== null ? round2(wallBedSalePrice + result.total) : null;
+
+        return {
+            heightFt, bedWidthFt: selectedModel.widthFt, bedModelLabel: selectedModel.label, totalWidthFt,
+            ...result,
+            wallBedModelLabel: pricedModel ? pricedModel.label : selectedModel.label,
+            wallBedSalePrice, wallBedRetailPrice, grandTotal
+        };
     } catch {
         return null; // e.g. height > 9ft but total wall width not collected yet
     }
+}
+
+function round2(n) {
+    return Math.round(n * 100) / 100;
 }
 
 // Scans the last few turns + current message for cabinetry measurements and,
@@ -466,8 +524,10 @@ function getCabinetryEstimateFromContext(message, history) {
 function computeCabinetryAllowedAmounts(message, history) {
     const est = getCabinetryEstimateFromContext(message, history);
     if (!est) return [];
-    return [est.sideCostPerSide, est.sideCostTotal, est.topCost, est.exceedingCost, est.total]
-        .filter(v => v > 0);
+    return [
+        est.sideCostPerSide, est.sideCostTotal, est.topCost, est.exceedingCost, est.total,
+        est.wallBedSalePrice, est.wallBedRetailPrice, est.grandTotal
+    ].filter(v => v > 0);
 }
 
 function formatRM(n) {
@@ -484,14 +544,28 @@ function buildCabinetryEstimateBlock(message, history) {
 
     const lines = [
         '',
-        'PRE-CALCULATED CABINETRY ESTIMATE FOR THIS CUSTOMER (already computed from their measurements — use these EXACT figures, do not recalculate or round differently):',
-        `- Side cabinets: ${formatRM(est.sideCostPerSide)} per side × ${est.sides} side(s) = ${formatRM(est.sideCostTotal)} (height used: ${est.sideHeightUsedFt}ft${est.exceedsStandard ? ', capped at the 9ft standard' : ''})`,
-        `- Overhead cabinet (${est.bedWidthFt}ft wide, based on the ${est.bedModelLabel} you've been discussing): ${formatRM(est.topCost)}`
+        'PRE-CALCULATED WALL BED + CABINETRY ESTIMATE FOR THIS CUSTOMER (already computed from their chosen model and their own measurements — use these EXACT figures, do not recalculate, re-round, or omit any line):',
     ];
+
+    if (est.wallBedSalePrice !== null) {
+        lines.push(`- Wall bed (${est.wallBedModelLabel}, sale price): ${formatRM(est.wallBedSalePrice)}`);
+    }
+
+    lines.push(
+        `- Side cabinets: ${formatRM(est.sideCostPerSide)} per side × ${est.sides} side(s) = ${formatRM(est.sideCostTotal)} (leftover wall width used: ${est.sideCabinetWidthFt}ft per side)`,
+        `- Overhead cabinet (${est.bedWidthFt}ft wide, based on the ${est.wallBedModelLabel || est.bedModelLabel} you've been discussing): ${formatRM(est.topCost)}`
+    );
     if (est.exceedsStandard) {
         lines.push(`- Excess-height surcharge (wall is ${est.heightFt}ft, over the 9ft standard; full wall width ${est.totalWidthFt}ft): ${formatRM(est.exceedingCost)}`);
     }
-    lines.push(`- TOTAL ESTIMATE: ${formatRM(est.total)}`);
+    lines.push(`- Cabinetry subtotal: ${formatRM(est.total)}`);
+
+    if (est.grandTotal !== null) {
+        lines.push(`- GRAND TOTAL (wall bed + cabinetry): ${formatRM(est.grandTotal)}`);
+    } else {
+        lines.push('- Wall bed price not resolved for this exact model — ask the customer to confirm the specific model before stating a combined total; present the cabinetry subtotal only until then.');
+    }
+
     return lines.join('\n');
 }
 

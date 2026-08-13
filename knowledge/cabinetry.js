@@ -148,7 +148,16 @@ FORMULA:
   spread across the FULL wall width:
     exceedingCost = total wall width × RM800
   (This only applies once — it is not scaled again by how many feet over 9ft the wall is.)
-- total = sideCostTotal + topCost + exceedingCost
+- total = sideCostTotal + topCost + exceedingCost  (this is the CABINETRY SUBTOTAL only)
+
+FINAL CUSTOMER TOTAL — WALL BED + CABINETRY:
+- The cabinetry formula above only prices the cabinets themselves. Whenever a customer
+  asks for the estimated/total price of a wall bed with surround cabinetry, the number
+  you present as the headline total must be:
+    grandTotal = wall bed price (sale price of the customer's chosen model) + cabinetry subtotal
+- Always show the wall bed price as its own line item first, then the cabinetry
+  breakdown, then the combined grand total — never present the cabinetry subtotal alone
+  as if it were the full project cost.
 
 WORKED EXAMPLE 1 — wall exactly 9ft tall, wall bed 5.5ft wide, total wall width 10ft, 2 sides:
   Leftover width for sides: (10 − 5.5) ÷ 2 = 2.25ft per side
@@ -181,13 +190,28 @@ WORKED EXAMPLE 4 — same as example 1 but only ONE side available (corner insta
   Top: 5.5 × RM800 = RM4,400
   Total estimate: RM7,437.50
 
+WORKED EXAMPLE 5 — full wall bed + cabinetry total, same wall as example 1 (9ft tall,
+10ft total wall width, 2 sides), customer has chosen the Murano Queen Sofa (5.48ft wide
+— close enough to the 5.5ft used above to reuse that math; use the model's real spec
+width, 5.48ft, when actually calculating):
+  Wall bed (Murano Queen Sofa, sale price): RM 23,698.11
+  Side cabinets: RM 3,037.50 per side × 2 = RM 6,075
+  Overhead cabinet: 5.48 × RM800 = RM 4,384
+  Cabinetry subtotal: RM 10,459
+  GRAND TOTAL (wall bed + cabinetry): RM 34,157.11
+
 PRESENTATION RULES:
-- Always show the line-item breakdown (side cabinets, overhead cabinet, and the
-  excess-height surcharge if applicable), then the total — don't just state a lump sum.
+- Always lead with the wall bed price (sale price of the customer's chosen model), then
+  the cabinetry line-item breakdown (side cabinets, overhead cabinet, and the
+  excess-height surcharge if applicable), then the cabinetry subtotal, then the combined
+  GRAND TOTAL — don't just state a lump sum, and don't state the cabinetry subtotal as
+  if it were the final price on its own.
 - Always label it as an ESTIMATE and close with: "This is an estimate — please confirm
   the exact quote with our team on WhatsApp at +60 12-568 4568, as final pricing depends
   on a site survey."
-- Never guess a customer's wall height, wall bed width, or total wall width — always ask.
+- Never guess a customer's wall height, wall bed width, wall bed model, or total wall
+  width — always ask (the wall bed model can also be picked up from earlier in the
+  conversation if already established).
 - If a customer only has one side available (corner installation, adjacent fixture, etc.),
   use sides = 1 in the calculation and say so explicitly in the breakdown.
 `;

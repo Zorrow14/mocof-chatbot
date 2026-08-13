@@ -10,6 +10,31 @@ export const WALLBED_MODEL_WIDTHS_FT = [
     { pattern: /gioco/i,           widthFt: 6.71, label: 'Gioco' }         // covers all Gioco models — same width regardless of variant
 ];
 
+// Structured price lookup — single source of truth for both the knowledge
+// text below AND the "wall bed + cabinetry" combined-estimate calculation in
+// api/chat.js. This is intentionally MORE granular than WALLBED_MODEL_WIDTHS_FT
+// above: several models share the same width (e.g. Murano Queen / Queen Sofa /
+// Queen Desk / Queen Shelves are all 167cm wide) but have very different
+// prices, so width-category matching alone is not precise enough for pricing.
+//
+// Each "bare" pattern (e.g. Murano Queen, Gioco Single) uses a negative
+// lookahead so it does NOT match when a more specific variant word follows
+// (sofa/desk/shelves for Murano Queen, desk for Gioco Single) — this makes
+// match order irrelevant, since the bare pattern simply won't fire on text
+// that actually names a more specific variant.
+export const WALLBED_MODEL_PRICING = [
+    { pattern: /murano\s*queen\s*sofa/i,             label: 'Murano Queen Sofa',    retail: 33854.44, sale: 23698.11 },
+    { pattern: /murano\s*queen\s*desk/i,             label: 'Murano Queen Desk',    retail: 24687.78, sale: 17281.45 },
+    { pattern: /murano\s*queen\s*shelves/i,          label: 'Murano Queen Shelves', retail: 22976.67, sale: 16083.67 },
+    { pattern: /murano\s*single/i,                   label: 'Murano Single',        retail: 17232.22, sale: 12062.55 },
+    { pattern: /murano\s*king/i,                     label: 'Murano King',          retail: 20269.22, sale: 15285.45 },
+    { pattern: /murano\s*queen(?!\s*(sofa|desk|shelves))/i, label: 'Murano Queen',   retail: 19102.22, sale: 14371.55 },
+    { pattern: /gioco\s*single\s*desk/i,             label: 'Gioco Single Desk',    retail: 25054.44, sale: 17538.11 },
+    { pattern: /gioco\s*queen/i,                     label: 'Gioco Queen',          retail: 20654.45, sale: 15458.12 },
+    { pattern: /gioco\s*single(?!\s*desk)/i,         label: 'Gioco Single',         retail: 18698.89, sale: 13089.22 },
+    { pattern: /gioco\s*bunk/i,                      label: 'Gioco Bunk Bed',       retail: 33365.56, sale: 26692.45 }
+];
+
 export function getWallBedKnowledge() {
     return `
 WALL BED PRODUCTS — PRICING & DIMENSIONS:
