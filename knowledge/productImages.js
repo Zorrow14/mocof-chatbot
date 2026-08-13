@@ -800,7 +800,7 @@ export const PRODUCT_IMAGES = [
     {
         pattern: /(?=.*\b(wall\s*beds?|wallbeds?|murphy\s*beds?)\b)(?=.*\b(cabinets?|cabinetry|storage|shelv\w*)\b)(?=.*\b(references?|examples?|samples?|ideas?|inspirations?|layouts?|configurations?|configure\w*|customi[sz]e\w*|look\s*like|shows?|pictures?|photos?|pics?|images?)\b)/i,
         label: 'Wall Bed + Cabinetry Reference Photo',
-        url: '/images/wallbed-cabinetry-reference.png'
+        url: '/images/wallbed-cabinetry-reference.jpeg'
     },
 
     // ── Basic Study Table ──
