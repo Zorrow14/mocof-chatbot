@@ -162,23 +162,23 @@ SURROUND CABINETRY ESTIMATES:
   automatically. If no model has been established yet, ask which model they're
   considering (Murano Queen, Murano Queen Sofa, Murano Queen Desk, Murano Queen Shelves,
   Murano Single, Murano King, or a Gioco model) instead of asking for a raw measurement
-  — this is required both for the side-cabinet leftover-width calc AND for pricing the
-  wall bed line item, so don't skip it even if you already know the width category.
-- Beyond that, ask for wall height and total wall width, one question at a time — these
-  ARE reasonable to ask, since they describe the customer's own room, not a product spec.
-  Total wall width is always required now (it prices the overhead cabinet directly, not
-  just the side-cabinet leftover width), not just for walls over a height threshold.
+  — this is required both for the overhead-cabinet width AND for pricing the wall bed
+  line item, so don't skip it even if you already know the width category.
+- Beyond that, ask for wall height, and (only if the wall is over 9ft tall) total wall
+  width, one question at a time — these ARE reasonable to ask, since they describe the
+  customer's own room, not a product spec.
 - If a "PRE-CALCULATED WALL BED + CABINETRY ESTIMATE" block appears below, the server
   has already computed every line (wall bed price, side cabinets, overhead cabinet,
-  cabinetry subtotal, and the GRAND TOTAL) from this customer's own chosen model and
-  measurements — present ALL of those EXACT figures, in that order, ending with the
-  GRAND TOTAL as the headline number. Do NOT recalculate, re-round, adjust, or drop any
-  line yourself — especially do not drop the wall bed price line and only show the
-  cabinetry subtotal. There is no excess-height surcharge anymore — never add one.
+  excess-height surcharge if any, cabinetry subtotal, and the GRAND TOTAL) from this
+  customer's own chosen model and measurements — present ALL of those EXACT figures,
+  in that order, ending with the GRAND TOTAL as the headline number. Do NOT recalculate,
+  re-round, adjust, or drop any line yourself — especially do not drop the wall bed
+  price line and only show the cabinetry subtotal.
 - If no such block appears, you don't have everything needed yet — keep asking for
-  whichever of wall bed model / wall height / total wall width is still missing. Do not
-  guess or estimate a total from memory before that's all collected, and do not state a
-  total using only the cabinetry portion while the wall bed portion is still missing.
+  whichever of wall bed model / wall height / total wall width (if applicable) is still
+  missing. Do not guess or estimate a total from memory before that's all collected, and
+  do not state a total using only the cabinetry portion while the wall bed portion is
+  still missing.
 - Always label it as an estimate confirmed via WhatsApp/site survey.
 - This is the ONE place where you may state a price that isn't literally written
   character-for-character in the knowledge base as a single line — because it's a live
@@ -206,10 +206,11 @@ RESPONSE RULES:
 FORMATTING RULES:
 - Supported formatting is now: **bold**, numbered lists ("1. ", "2. ", ...), bullet lists ("- " per line), and Markdown tables. Nothing else renders — no headers (#), no code blocks, no links, no italics, no blockquotes. Never use those; they will show up as literal characters to the customer.
 - Bold: use double asterisks for key product/service keywords only — **Wall Beds**, **Sofa Beds**, **Renovation**, **Tables**, **Kitchen**, **Wardrobes**, **Showroom**, **Warranty**, series names like **Murano Series** / **Gioco Series**, and model names like **Murano Queen** or **Gioco Single Desk**. Do NOT bold entire sentences — only the keyword/name itself. Never use single asterisks or italics.
-- MULTIPLE QUESTIONS: if your reply asks the customer two or more distinct questions, format them as a numbered list — one question per line, e.g.:
+- MULTIPLE QUESTIONS: if your reply asks the customer two or more distinct questions, format them as a numbered list — EACH QUESTION ON ITS OWN SEPARATE LINE (a real line break between them), like this:
   1. What's the total height of the wall, in feet?
   2. What's the total width of the wall, in feet?
-  Do not run multiple questions together in one sentence or paragraph. (A single question stays as plain conversational text — only switch to a numbered list once there are 2 or more.)
+  3. Are both sides of the bed open, or is one side against a corner?
+  WRONG (do not do this — this is a real bug that has happened before): writing all the questions back-to-back on one line/sentence, e.g. "1. What's the total height of the wall, in feet? 2. What's the total width of the wall, in feet? 3. Are both sides open?" — even though it starts with "1.", cramming items 2 and 3 onto the same line makes them unreadable to the customer. Always put a line break before each new number. (A single question stays as plain conversational text — only switch to a numbered list once there are 2 or more.)
 - BULLET LISTS: use "- " at the start of each line for short unordered items (e.g. a price/estimate breakdown with several line items, or a list of options) — one item per line, no extra commentary inside the item itself.
 - TABLES: when presenting genuinely tabular/comparative data (e.g. comparing two or more models side by side, or a multi-row price breakdown), use a proper Markdown table — a header row, then a separator row of dashes, then data rows, all with matching column counts:
   | Model | Width | Sale Price |
@@ -535,7 +536,7 @@ function computeCabinetryAllowedAmounts(message, history) {
     const est = getCabinetryEstimateFromContext(message, history);
     if (!est) return [];
     return [
-        est.sideCostPerSide, est.sideCostTotal, est.topCost, est.total,
+        est.sideCostPerSide, est.sideCostTotal, est.topCost, est.exceedingCost, est.total,
         est.wallBedSalePrice, est.wallBedRetailPrice, est.grandTotal
     ].filter(v => v > 0);
 }
@@ -544,24 +545,11 @@ function formatRM(n) {
     return `RM ${n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 }
 
-// Only trigger the pre-calculated pricing block when the CURRENT message
-// actually asks about price/cost/estimate -- per explicit instruction, the
-// bot must not proactively volunteer pricing just because it already has
-// enough measurements to compute one. This is a best-effort keyword check
-// on the current message only (same "best-effort text parsing, not a
-// robust NLU layer" philosophy as the other extractors in this file) --
-// a bare "yes" replying to the bot's own offer to calculate a price
-// wouldn't match this, which is a known, accepted limitation.
-const PRICE_INTENT_PATTERN = /\b(how much|price|cost|costs|estimate|quote|total|budget)\b/i;
-
 // Builds a ready-made, already-correct breakdown to inject into the system
-// prompt when we have enough measurements AND the customer actually asked
-// for pricing this turn. The model is told to relay these exact figures
-// rather than compute them itself — this removes reliance on the model's
-// arithmetic entirely, not just the after-the-fact guard check.
+// prompt when we have enough measurements. The model is told to relay these
+// exact figures rather than compute them itself — this removes reliance on
+// the model's arithmetic entirely, not just the after-the-fact guard check.
 function buildCabinetryEstimateBlock(message, history) {
-    if (!PRICE_INTENT_PATTERN.test((message || '').toLowerCase())) return '';
-
     const est = getCabinetryEstimateFromContext(message, history);
     if (!est) return '';
 
@@ -575,9 +563,12 @@ function buildCabinetryEstimateBlock(message, history) {
     }
 
     lines.push(
-        `- Side cabinets: ${formatRM(est.sideCostPerSide)} per side × ${est.sides} side(s) = ${formatRM(est.sideCostTotal)} (${est.sideCabinetMaxHeightFt}ft tall) — leftover wall width used: ${est.sideCabinetWidthFt}ft per side`,
-        `- Overhead cabinet (priced by total wall width, ${est.totalWidthFt}ft): ${formatRM(est.topCost)} (${est.overheadCabinetHeightFt}ft tall)`
+        `- Side cabinets: ${formatRM(est.sideCostPerSide)} per side × ${est.sides} side(s) = ${formatRM(est.sideCostTotal)} (leftover wall width used: ${est.sideCabinetWidthFt}ft per side)`,
+        `- Overhead cabinet (${est.bedWidthFt}ft wide, based on the ${est.wallBedModelLabel || est.bedModelLabel} you've been discussing): ${formatRM(est.topCost)}`
     );
+    if (est.exceedsStandard) {
+        lines.push(`- Excess-height surcharge (wall is ${est.heightFt}ft, over the 9ft standard; full wall width ${est.totalWidthFt}ft): ${formatRM(est.exceedingCost)}`);
+    }
     lines.push(`- Cabinetry subtotal: ${formatRM(est.total)}`);
 
     if (est.grandTotal !== null) {
