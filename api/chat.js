@@ -71,6 +71,19 @@ const KNOWLEDGE_MODULES = [
 // it was written for.
 const MAX_KNOWLEDGE_MODULES = 3;
 
+// basicfurniture.js contains the cheaper/ready-made counterpart for each of
+// these categories (Basic Sofa, Basic Dining Table, Basic Study Table, Basic
+// Wardrobe references, etc). The basicFurniture regex can't realistically
+// enumerate every generic word ("table", "desk", "study", "chair"...) that
+// should pull it in, and even when it does match it can still get crowded
+// out of the top MAX_KNOWLEDGE_MODULES slots since it's last in the array
+// (see the "Glint Table incident" note above). So instead of relying on
+// keyword luck or array order, whenever one of these companion categories is
+// relevant, basicFurniture is always included alongside it — this is what
+// makes "is there a cheaper alternative" work for ANY product category, not
+// just the ones that happen to also contain the literal word "cheaper".
+const BASIC_FURNITURE_COMPANION_KEYS = ['wallbed', 'sofabed', 'table', 'kitchen', 'wardrobe'];
+
 function getRelevantKnowledge(message, history) {
     const recentHistoryText = Array.isArray(history)
         ? history.slice(-4).map(m => (m && m.content) ? m.content : '').join(' ')
@@ -92,7 +105,19 @@ function getRelevantKnowledge(message, history) {
         return getWallBedKnowledge() + getShowroomKnowledge();
     }
 
-    return prioritized.slice(0, MAX_KNOWLEDGE_MODULES).map(m => m.fn()).join('');
+    let selected = prioritized.slice(0, MAX_KNOWLEDGE_MODULES);
+
+    // Guarantee basicFurniture rides along with any companion category, even
+    // if it didn't match a keyword itself or got pushed past the cap above —
+    // this is deliberately NOT counted against MAX_KNOWLEDGE_MODULES, since
+    // dropping it silently reintroduces the exact bug this fix addresses.
+    const basicFurnitureModule = KNOWLEDGE_MODULES.find(m => m.key === 'basicFurniture');
+    const touchesCompanionCategory = prioritized.some(m => BASIC_FURNITURE_COMPANION_KEYS.includes(m.key));
+    if (touchesCompanionCategory && basicFurnitureModule && !selected.includes(basicFurnitureModule)) {
+        selected = [...selected, basicFurnitureModule];
+    }
+
+    return selected.map(m => m.fn()).join('');
 }
 
 // ── Build system prompt ───────────────────────────────────────
