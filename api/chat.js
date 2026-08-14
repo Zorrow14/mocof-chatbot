@@ -162,23 +162,23 @@ SURROUND CABINETRY ESTIMATES:
   automatically. If no model has been established yet, ask which model they're
   considering (Murano Queen, Murano Queen Sofa, Murano Queen Desk, Murano Queen Shelves,
   Murano Single, Murano King, or a Gioco model) instead of asking for a raw measurement
-  — this is required both for the overhead-cabinet width AND for pricing the wall bed
-  line item, so don't skip it even if you already know the width category.
-- Beyond that, ask for wall height, and (only if the wall is over 9ft tall) total wall
-  width, one question at a time — these ARE reasonable to ask, since they describe the
-  customer's own room, not a product spec.
+  — this is required both for the side-cabinet leftover-width calc AND for pricing the
+  wall bed line item, so don't skip it even if you already know the width category.
+- Beyond that, ask for wall height and total wall width, one question at a time — these
+  ARE reasonable to ask, since they describe the customer's own room, not a product spec.
+  Total wall width is always required now (it prices the overhead cabinet directly, not
+  just the side-cabinet leftover width), not just for walls over a height threshold.
 - If a "PRE-CALCULATED WALL BED + CABINETRY ESTIMATE" block appears below, the server
   has already computed every line (wall bed price, side cabinets, overhead cabinet,
-  excess-height surcharge if any, cabinetry subtotal, and the GRAND TOTAL) from this
-  customer's own chosen model and measurements — present ALL of those EXACT figures,
-  in that order, ending with the GRAND TOTAL as the headline number. Do NOT recalculate,
-  re-round, adjust, or drop any line yourself — especially do not drop the wall bed
-  price line and only show the cabinetry subtotal.
+  cabinetry subtotal, and the GRAND TOTAL) from this customer's own chosen model and
+  measurements — present ALL of those EXACT figures, in that order, ending with the
+  GRAND TOTAL as the headline number. Do NOT recalculate, re-round, adjust, or drop any
+  line yourself — especially do not drop the wall bed price line and only show the
+  cabinetry subtotal. There is no excess-height surcharge anymore — never add one.
 - If no such block appears, you don't have everything needed yet — keep asking for
-  whichever of wall bed model / wall height / total wall width (if applicable) is still
-  missing. Do not guess or estimate a total from memory before that's all collected, and
-  do not state a total using only the cabinetry portion while the wall bed portion is
-  still missing.
+  whichever of wall bed model / wall height / total wall width is still missing. Do not
+  guess or estimate a total from memory before that's all collected, and do not state a
+  total using only the cabinetry portion while the wall bed portion is still missing.
 - Always label it as an estimate confirmed via WhatsApp/site survey.
 - This is the ONE place where you may state a price that isn't literally written
   character-for-character in the knowledge base as a single line — because it's a live
@@ -535,7 +535,7 @@ function computeCabinetryAllowedAmounts(message, history) {
     const est = getCabinetryEstimateFromContext(message, history);
     if (!est) return [];
     return [
-        est.sideCostPerSide, est.sideCostTotal, est.topCost, est.exceedingCost, est.total,
+        est.sideCostPerSide, est.sideCostTotal, est.topCost, est.total,
         est.wallBedSalePrice, est.wallBedRetailPrice, est.grandTotal
     ].filter(v => v > 0);
 }
@@ -575,12 +575,9 @@ function buildCabinetryEstimateBlock(message, history) {
     }
 
     lines.push(
-        `- Side cabinets: ${formatRM(est.sideCostPerSide)} per side × ${est.sides} side(s) = ${formatRM(est.sideCostTotal)} (leftover wall width used: ${est.sideCabinetWidthFt}ft per side; built up to ${est.sideCabinetMaxHeightFt}ft tall)`,
-        `- Overhead cabinet (${est.bedWidthFt}ft wide, based on the ${est.wallBedModelLabel || est.bedModelLabel} you've been discussing; built up to ${est.overheadCabinetMaxHeightFt}ft tall): ${formatRM(est.topCost)}`
+        `- Side cabinets: ${formatRM(est.sideCostPerSide)} per side × ${est.sides} side(s) = ${formatRM(est.sideCostTotal)} (${est.sideCabinetMaxHeightFt}ft tall) — leftover wall width used: ${est.sideCabinetWidthFt}ft per side`,
+        `- Overhead cabinet (priced by total wall width, ${est.totalWidthFt}ft): ${formatRM(est.topCost)} (${est.overheadCabinetHeightFt}ft tall)`
     );
-    if (est.exceedsStandard) {
-        lines.push(`- Excess-height surcharge (wall is ${est.heightFt}ft, over the 9ft standard; full wall width ${est.totalWidthFt}ft): ${formatRM(est.exceedingCost)}`);
-    }
     lines.push(`- Cabinetry subtotal: ${formatRM(est.total)}`);
 
     if (est.grandTotal !== null) {
