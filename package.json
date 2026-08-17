@@ -5,10 +5,9 @@
   "type": "module",
   "scripts": {
     "dev": "vercel dev",
-    "build": "echo 'No build step required'"
-  },
-  "dependencies": {
-    "node-fetch": "^3.3.2"
+    "build": "echo 'No build step required'",
+    "test": "node --test",
+    "test:consistency": "node --test test/consistency.test.js"
   },
   "engines": {
     "node": "20.x"

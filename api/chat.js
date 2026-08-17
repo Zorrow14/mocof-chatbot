@@ -666,6 +666,27 @@ function stripImageDisclaimers(text) {
     return kept.join(' ').trim();
 }
 
+// ── Test-only named exports ─────────────────────────────────────
+// These are the exact same function references used by the handler above —
+// exporting them changes no behavior, it just lets test/*.test.js exercise
+// this internal logic directly instead of only through the full HTTP
+// handler (which would require mocking the Gemini API for every test).
+export {
+    getRelevantKnowledge,
+    extractCabinetryDimensions,
+    extractSelectedWallBedModel,
+    extractSelectedWallBedPricing,
+    getCabinetryEstimateFromContext,
+    computeCabinetryAllowedAmounts,
+    buildCabinetryEstimateBlock,
+    hasCabinetryPriceIntent,
+    findHallucinatedPrices,
+    isKnownAmount,
+    MASTER_PRICE_LIST,
+    KNOWLEDGE_MODULES,
+    BASIC_FURNITURE_COMPANION_KEYS
+};
+
 // ── Main handler ──────────────────────────────────────────────
 export default async function handler(req, res) {
 
