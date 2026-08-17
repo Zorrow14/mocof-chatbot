@@ -189,21 +189,25 @@ SURROUND CABINETRY ESTIMATES:
   Murano Single, Murano King, or a Gioco model) instead of asking for a raw measurement
   — this is required both for the overhead-cabinet width AND for pricing the wall bed
   line item, so don't skip it even if you already know the width category.
-- Beyond that, ask for wall height, and (only if the wall is over 9ft tall) total wall
-  width, one question at a time — these ARE reasonable to ask, since they describe the
+- Beyond that, ask for wall height AND total wall width — both are always required now
+  (total wall width also prices the overhead cabinet, not just the leftover side-cabinet
+  width) — one question at a time. These ARE reasonable to ask, since they describe the
   customer's own room, not a product spec.
 - If a "PRE-CALCULATED WALL BED + CABINETRY ESTIMATE" block appears below, the server
   has already computed every line (wall bed price, side cabinets, overhead cabinet,
-  excess-height surcharge if any, cabinetry subtotal, and the GRAND TOTAL) from this
-  customer's own chosen model and measurements — present ALL of those EXACT figures,
-  in that order, ending with the GRAND TOTAL as the headline number. Do NOT recalculate,
-  re-round, adjust, or drop any line yourself — especially do not drop the wall bed
-  price line and only show the cabinetry subtotal.
-- If no such block appears, you don't have everything needed yet — keep asking for
-  whichever of wall bed model / wall height / total wall width (if applicable) is still
-  missing. Do not guess or estimate a total from memory before that's all collected, and
-  do not state a total using only the cabinetry portion while the wall bed portion is
-  still missing.
+  cabinetry subtotal, and the GRAND TOTAL) from this customer's own chosen model and
+  measurements — present ALL of those EXACT figures, in that order, ending with the
+  GRAND TOTAL as the headline number. Do NOT recalculate, re-round, adjust, or drop any
+  line yourself — especially do not drop the wall bed price line and only show the
+  cabinetry subtotal.
+- That block ONLY appears once the customer has actually asked about price/cost/estimate
+  AND every needed measurement is known — if it's missing because a measurement is still
+  outstanding, keep asking for whichever of wall bed model / wall height / total wall
+  width is still missing. If it's missing because no price question has been asked yet,
+  keep helping with whatever the customer actually asked (collecting measurements or
+  discussing layout is fine) without volunteering a total. Do not guess or estimate a
+  total from memory before the block appears, and do not state a total using only the
+  cabinetry portion while the wall bed portion is still missing.
 - Always label it as an estimate confirmed via WhatsApp/site survey.
 - This is the ONE place where you may state a price that isn't literally written
   character-for-character in the knowledge base as a single line — because it's a live
@@ -561,7 +565,7 @@ function computeCabinetryAllowedAmounts(message, history) {
     const est = getCabinetryEstimateFromContext(message, history);
     if (!est) return [];
     return [
-        est.sideCostPerSide, est.sideCostTotal, est.topCost, est.exceedingCost, est.total,
+        est.sideCostPerSide, est.sideCostTotal, est.topCost, est.total,
         est.wallBedSalePrice, est.wallBedRetailPrice, est.grandTotal
     ].filter(v => v > 0);
 }
@@ -570,11 +574,35 @@ function formatRM(n) {
     return `RM ${n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 }
 
+// ── Price-intent gate ───────────────────────────────────────
+// cabinetry.js's own knowledge text says the model must present a price
+// "STRICTLY ONLY WHEN ASKED" — but until now nothing enforced that in code:
+// buildCabinetryEstimateBlock() below appeared (and the model was told to
+// present it) the moment enough measurements were known, price question or
+// not, which let the live bot volunteer pricing unprompted.
+//
+// Checked across the same recent-turns window as extractCabinetryDimensions
+// above, not just the exact current message — because the measurement
+// collection flow means the customer's price question and the final missing
+// measurement are usually several turns apart, e.g.:
+//   "how much would this cost?" → bot asks height → "9ft"
+//   → bot asks total width → "12ft"
+// That last bare "12ft" has no price words of its own, but the price WAS
+// asked for a few turns back and the estimate should now be shown.
+const PRICE_INTENT_PATTERN = /\b(how\s*much|price|cost|estimate|quote|total)\b/i;
+
+function hasCabinetryPriceIntent(message, history) {
+    const priorTurns = Array.isArray(history) ? history.slice(-10) : [];
+    const turns = [...priorTurns, { role: 'user', content: message }];
+    return turns.some(t => t && t.role === 'user' && t.content && PRICE_INTENT_PATTERN.test(t.content));
+}
+
 // Builds a ready-made, already-correct breakdown to inject into the system
 // prompt when we have enough measurements. The model is told to relay these
 // exact figures rather than compute them itself — this removes reliance on
 // the model's arithmetic entirely, not just the after-the-fact guard check.
 function buildCabinetryEstimateBlock(message, history) {
+    if (!hasCabinetryPriceIntent(message, history)) return '';
     const est = getCabinetryEstimateFromContext(message, history);
     if (!est) return '';
 
@@ -588,12 +616,9 @@ function buildCabinetryEstimateBlock(message, history) {
     }
 
     lines.push(
-        `- Side cabinets: ${formatRM(est.sideCostPerSide)} per side × ${est.sides} side(s) = ${formatRM(est.sideCostTotal)} (leftover wall width used: ${est.sideCabinetWidthFt}ft per side)`,
-        `- Overhead cabinet (${est.bedWidthFt}ft wide, based on the ${est.wallBedModelLabel || est.bedModelLabel} you've been discussing): ${formatRM(est.topCost)}`
+        `- Side cabinets: ${formatRM(est.sideCostPerSide)} per side × ${est.sides} side(s) = ${formatRM(est.sideCostTotal)} (${est.sideCabinetMaxHeightFt}ft tall; leftover wall width used: ${est.sideCabinetWidthFt}ft per side)`,
+        `- Overhead cabinet (priced by total wall width, ${est.totalWidthFt}ft; built ${est.overheadCabinetHeightFt}ft tall): ${formatRM(est.topCost)}`
     );
-    if (est.exceedsStandard) {
-        lines.push(`- Excess-height surcharge (wall is ${est.heightFt}ft, over the 9ft standard; full wall width ${est.totalWidthFt}ft): ${formatRM(est.exceedingCost)}`);
-    }
     lines.push(`- Cabinetry subtotal: ${formatRM(est.total)}`);
 
     if (est.grandTotal !== null) {
