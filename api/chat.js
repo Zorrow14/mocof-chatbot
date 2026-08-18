@@ -2,7 +2,7 @@
 // FILE: api/chat.js
 // Vercel Serverless Function — handles all Gemini API calls
 // Endpoint: POST /api/chat
-// API Keys: GEMINI_API_KEY in Vercel env vars
+// API Keys: GEMINI_API_KEY (primary) + GEMINI_API_KEY_2 (fallback) in Vercel env vars
 // =============================================================
 
 import { getRenovationKnowledge } from '../knowledge/renovation.js';
@@ -257,8 +257,11 @@ CRITICAL — GROUNDING (this section overrides anything above if there's ever a 
 }
 
 // ── API key ──────────────────────────────────────────────────
+// Two keys, in priority order — GEMINI_API_KEY is primary,
+// GEMINI_API_KEY_2 is the fallback. Either one may be unset; only
+// whichever are actually configured get returned.
 function getGeminiApiKeys() {
-    return [process.env.GEMINI_API_KEY]
+    return [process.env.GEMINI_API_KEY, process.env.GEMINI_API_KEY_2]
         .filter(key => typeof key === 'string' && key.trim() !== '');
 }
 
@@ -310,6 +313,34 @@ async function callGemini(apiKey, requestBody) {
     }
 
     return data.choices[0].message.content;
+}
+
+// Tries each configured key in order (GEMINI_API_KEY, then
+// GEMINI_API_KEY_2), but only advances to the next key when the failure
+// looks like something a *different* key could plausibly fix — a network
+// error, rate limiting (429), or the provider having a bad moment (5xx).
+// A 4xx like 400/401/403 means the request or that specific key itself is
+// bad, and the other key would fail the exact same way, so it fails fast
+// instead of wasting a second round-trip.
+async function callGeminiWithFallback(apiKeys, requestBody) {
+    let lastError = null;
+    for (let i = 0; i < apiKeys.length; i++) {
+        try {
+            return await callGemini(apiKeys[i], requestBody);
+        } catch (err) {
+            lastError = err;
+            const retryable = !err.status || err.status === 429 || err.status >= 500;
+            const isLastKey = i === apiKeys.length - 1;
+            console.error(
+                `Gemini key ${i + 1}/${apiKeys.length} failed:`, err.status || 'network', err.details || err.message,
+                (retryable && !isLastKey) ? '— trying next key' : ''
+            );
+            if (!retryable || isLastKey) {
+                throw err;
+            }
+        }
+    }
+    throw lastError;
 }
 
 // ── Convert history to OpenAI-compatible format ───────────────
@@ -682,6 +713,8 @@ export {
     hasCabinetryPriceIntent,
     findHallucinatedPrices,
     isKnownAmount,
+    getGeminiApiKeys,
+    callGeminiWithFallback,
     MASTER_PRICE_LIST,
     KNOWLEDGE_MODULES,
     BASIC_FURNITURE_COMPANION_KEYS
@@ -760,10 +793,9 @@ export default async function handler(req, res) {
         let lastError = null;
 
         try {
-            reply = await callGemini(apiKeys[0], requestBody);
+            reply = await callGeminiWithFallback(apiKeys, requestBody);
         } catch (err) {
             lastError = err;
-            console.error('Gemini key failed:', err.status || 'network', err.details || err.message);
         }
 
         // Backstop for the CRITICAL — IMAGES system-prompt rule: strips any sentence
@@ -773,10 +805,34 @@ export default async function handler(req, res) {
         if (reply) {
             const cabinetryAllowedAmounts = computeCabinetryAllowedAmounts(message, history);
             const badPrices = findHallucinatedPrices(reply, message, cabinetryAllowedAmounts);
+
             if (badPrices.length > 0) {
-                console.error('Blocked reply containing unrecognized price(s):', badPrices.join(', '), '| original reply:', reply);
-                reply = SAFE_FALLBACK_REPLY;
+                console.error('Reply contained unrecognized price(s):', badPrices.join(', '), '| regenerating once before falling back | original reply:', reply);
+
+                // One retry before giving up — the model is non-deterministic, so a
+                // fresh generation against the exact same request often just doesn't
+                // repeat the same slip. Only fall back to SAFE_FALLBACK_REPLY if the
+                // retry ALSO comes back with an unrecognized price (or fails outright).
+                let retryReply = null;
+                try {
+                    retryReply = await callGeminiWithFallback(apiKeys, requestBody);
+                } catch (err) {
+                    console.error('Retry-before-fallback attempt itself failed:', err.status || 'network', err.details || err.message);
+                }
+
+                if (retryReply) {
+                    const retryBadPrices = findHallucinatedPrices(retryReply, message, cabinetryAllowedAmounts);
+                    if (retryBadPrices.length === 0) {
+                        reply = retryReply;
+                    } else {
+                        console.error('Retry reply STILL contained unrecognized price(s):', retryBadPrices.join(', '), '| falling back | retry reply:', retryReply);
+                        reply = SAFE_FALLBACK_REPLY;
+                    }
+                } else {
+                    reply = SAFE_FALLBACK_REPLY;
+                }
             }
+
             reply = stripImageDisclaimers(reply);
             const images = getRelevantImages(message, history);
             return res.status(200).json({ success: true, message: reply, images });
