@@ -17,17 +17,23 @@ import assert from 'node:assert/strict';
 
 import {
     getRelevantKnowledge,
+    extractCabinetryDimensions,
     getCabinetryEstimateFromContext,
     computeCabinetryAllowedAmounts,
+    buildCabinetryEstimateBlock,
     hasCabinetryPriceIntent,
+    detectMuranoCeilingConflict,
+    buildMuranoCeilingWarningBlock,
+    convertToFeet,
     findHallucinatedPrices,
     isKnownAmount,
     MASTER_PRICE_LIST,
     KNOWLEDGE_MODULES,
-    BASIC_FURNITURE_COMPANION_KEYS
+    BASIC_FURNITURE_COMPANION_KEYS,
+    MURANO_MIN_CEILING_FT
 } from '../api/chat.js';
 
-import { calculateCabinetPrice, getCabinetryKnowledge } from '../knowledge/cabinetry.js';
+import { calculateCabinetPrice, getCabinetryKnowledge, SIDE_CABINET_MAX_HEIGHT_FT } from '../knowledge/cabinetry.js';
 import { getWallBedKnowledge, WALLBED_MODEL_WIDTHS_FT, WALLBED_MODEL_PRICING } from '../knowledge/wallbeds.js';
 import { getSofaBedKnowledge } from '../knowledge/sofabeds.js';
 import { getTableKnowledge } from '../knowledge/tables.js';
@@ -360,6 +366,189 @@ describe('product image coverage', () => {
         // and a number happen to appear in the same message.
         const images = getRelevantImages('Murano Queen, and the wall is 8ft high', []);
         assert.deepEqual(images, []);
+    });
+});
+
+// ── Phase 3.1: metric (cm/m) input alongside feet ───────────────────────
+// The cabinetry extraction regexes now accept cm/m in addition to ft, but
+// calculateCabinetPrice() itself is still feet-only by design (untouched by
+// this phase) — convertToFeet() is the single place doing that translation,
+// so these tests pin down its round-trip behavior against clean values.
+describe('convertToFeet — metric-to-feet conversion', () => {
+    test('feet passes through unchanged', () => {
+        assert.equal(convertToFeet(10, 'ft'), 10);
+        assert.equal(convertToFeet(5.5, 'feet'), 5.5);
+        assert.equal(convertToFeet(6, "'"), 6);
+    });
+
+    test('304.8cm converts to exactly 10ft (30.48cm/ft)', () => {
+        assert.equal(convertToFeet(304.8, 'cm'), 10);
+        assert.equal(convertToFeet(304.8, 'centimeters'), 10);
+        assert.equal(convertToFeet(304.8, 'centimetres'), 10);
+    });
+
+    test('3.048m converts to exactly 10ft', () => {
+        assert.equal(convertToFeet(3.048, 'm'), 10);
+        assert.equal(convertToFeet(3.048, 'meters'), 10);
+        assert.equal(convertToFeet(3.048, 'metres'), 10);
+    });
+});
+
+describe('cabinetry extraction accepts metric measurements end-to-end', () => {
+    test('a height given in cm and a width given in m compute the same estimate as example 1 (all-feet)', () => {
+        const history = [
+            { role: 'user', content: 'I want a Murano Queen with side cabinets, how much in total?' },
+            { role: 'assistant', content: 'Sure! What is the total height of the wall, in feet?' },
+            { role: 'user', content: '335.28cm' }, // 335.28 / 30.48 = 11ft exactly
+            { role: 'assistant', content: 'Got it. What is the total width of the wall, in feet?' }
+        ];
+        const message = '3.048m'; // 3.048 * (1/0.3048) = 10ft exactly
+
+        const est = getCabinetryEstimateFromContext(message, history);
+        assert.ok(est && !est.blocked, 'expected a resolved (non-blocked) cabinetry estimate');
+        assert.equal(est.heightFt, 11);
+        assert.equal(est.totalWidthFt, 10);
+        // Murano Queen's width is 5.48ft (WALLBED_MODEL_WIDTHS_FT), same as
+        // worked example 4's real-spec-width variant, not the rounded 5.5ft
+        // used in worked example 1 — so compare against calculateCabinetPrice
+        // directly rather than hardcoding example 1's numbers here.
+        const expected = calculateCabinetPrice({ wallHeightFt: 11, wallBedWidthFt: 5.48, totalWallWidthFt: 10, sides: 2 });
+        assert.equal(est.total, expected.total);
+    });
+
+    test('a metric bed-width mention ("the wall bed is 167cm wide") is not misread as the total wall width', () => {
+        // Mirrors the existing (all-feet) BED_WIDTH_MENTION_GUARD coverage,
+        // just in metric — a self-contained bed-width mention should still
+        // not get picked up as the total wall width.
+        const history = [
+            { role: 'user', content: 'I want a Murano Queen, the wall bed is 167cm wide — how much for cabinets?' },
+            { role: 'assistant', content: 'Got it. What is the total width of the wall, in feet?' }
+        ];
+        const { totalWidthFt } = extractCabinetryDimensions(history, '10ft');
+        assert.equal(totalWidthFt, 10, 'should resolve to the actual total-width answer, not the earlier bed-width mention');
+    });
+});
+
+// ── Phase 3.2a: wall too short to fit surround cabinetry (<7ft) ─────────
+describe('cabinetry — wall below the 7ft minimum', () => {
+    test('calculateCabinetPrice() throws a specific, identifiable error', () => {
+        assert.throws(
+            () => calculateCabinetPrice({ wallHeightFt: 6, wallBedWidthFt: 5.5, totalWallWidthFt: 10 }),
+            (err) => {
+                assert.equal(err.code, 'WALL_TOO_SHORT_FOR_CABINETRY');
+                assert.equal(err.minHeightFt, SIDE_CABINET_MAX_HEIGHT_FT);
+                return true;
+            }
+        );
+    });
+
+    test('a wall exactly at the 7ft minimum is still allowed (only strictly-below fails)', () => {
+        assert.doesNotThrow(() =>
+            calculateCabinetPrice({ wallHeightFt: 7, wallBedWidthFt: 5.5, totalWallWidthFt: 10 })
+        );
+    });
+
+    test('getCabinetryEstimateFromContext returns a blocked result, not null and not a price', () => {
+        const history = [
+            { role: 'user', content: 'I have a Murano Single, can I get side cabinets around it?' },
+            { role: 'assistant', content: 'Sure! What is the total height of the wall, in feet?' }
+        ];
+        const est = getCabinetryEstimateFromContext('6ft', history);
+        assert.ok(est, 'expected a non-null result (not "keep asking")');
+        assert.equal(est.blocked, true);
+        assert.equal(est.reason, 'WALL_TOO_SHORT_FOR_CABINETRY');
+        assert.equal(est.heightFt, 6);
+        assert.equal(est.minHeightFt, 7);
+    });
+
+    test('computeCabinetryAllowedAmounts returns [] for a blocked (too-short) wall', () => {
+        const history = [
+            { role: 'user', content: 'I have a Murano Single, can I get side cabinets around it?' },
+            { role: 'assistant', content: 'Sure! What is the total height of the wall, in feet?' }
+        ];
+        assert.deepEqual(computeCabinetryAllowedAmounts('6ft', history), []);
+    });
+
+    test('a fabricated price for a blocked (too-short) wall is still caught by the guardrail', () => {
+        const history = [
+            { role: 'user', content: 'I have a Murano Single, can I get side cabinets around it?' },
+            { role: 'assistant', content: 'Sure! What is the total height of the wall, in feet?' }
+        ];
+        const allowed = computeCabinetryAllowedAmounts('6ft', history);
+        // Deliberately far from any real catalog price (unlike a round number
+        // like RM 5,000, which can land within the RM2 tolerance of an
+        // unrelated real price purely by coincidence).
+        const badReply = 'Sure, that would come to RM 88,888.88 for the cabinetry.';
+        assert.deepEqual(findHallucinatedPrices(badReply, '6ft', allowed), ['88888.88']);
+    });
+
+    test('buildCabinetryEstimateBlock surfaces the "not possible" message even with no price question asked yet', () => {
+        const history = [
+            { role: 'user', content: 'I have a Murano Single, can I get side cabinets around it?' },
+            { role: 'assistant', content: 'Sure! What is the total height of the wall, in feet?' }
+        ];
+        const block = buildCabinetryEstimateBlock('6ft', history);
+        assert.match(block, /NOT POSSIBLE/);
+        assert.match(block, /6ft/);
+        assert.doesNotMatch(block, /PRE-CALCULATED/, 'must not also show a priced breakdown');
+    });
+
+    test('buildCabinetryEstimateBlock stays empty (keeps asking) when only height is known and it is a valid (>=7ft) height', () => {
+        const history = [
+            { role: 'user', content: 'I have a Murano Single, can I get side cabinets around it?' },
+            { role: 'assistant', content: 'Sure! What is the total height of the wall, in feet?' }
+        ];
+        const block = buildCabinetryEstimateBlock('11ft', history);
+        assert.equal(block, '', 'should return empty and keep collecting total width, not error');
+    });
+});
+
+// ── Phase 3.2b: Murano requires a 2.4m+ (~7ft+) ceiling ──────────────────
+describe('detectMuranoCeilingConflict — wall-bed series ceiling restriction', () => {
+    test('Murano + a ceiling under 7ft is flagged as a conflict', () => {
+        const history = [
+            { role: 'assistant', content: "I'd recommend the Murano Queen for your living room." },
+            { role: 'assistant', content: 'What is the total height of the wall, in feet?' }
+        ];
+        const conflict = detectMuranoCeilingConflict('6ft', history);
+        assert.ok(conflict, 'expected a conflict to be detected');
+        assert.equal(conflict.heightFt, 6);
+        assert.equal(conflict.minCeilingFt, MURANO_MIN_CEILING_FT);
+        assert.match(conflict.conflictingLabel, /Murano/);
+    });
+
+    test('Murano + a ceiling at or above 7ft is NOT a conflict', () => {
+        const history = [{ role: 'assistant', content: "I'd recommend the Murano Queen." }];
+        assert.equal(detectMuranoCeilingConflict('7ft', history), null);
+        assert.equal(detectMuranoCeilingConflict('11ft', history), null);
+    });
+
+    test('Gioco + a ceiling under 7ft is NOT a conflict (Gioco is rated for low ceilings)', () => {
+        const history = [{ role: 'assistant', content: "I'd recommend the Gioco Single for your study." }];
+        assert.equal(detectMuranoCeilingConflict('6ft', history), null);
+    });
+
+    test('no conflict when no model has been established yet', () => {
+        assert.equal(detectMuranoCeilingConflict('6ft', []), null);
+    });
+
+    test('buildMuranoCeilingWarningBlock is empty when there is no conflict, and names the model + heights when there is one', () => {
+        // The bare-number reply below only resolves to heightFt because the
+        // assistant's own turn here mentions "height" (see extractCabinetryDimensions'
+        // turn-aware bare-number inference) — same requirement as the rest of
+        // the cabinetry flow.
+        const noConflictHistory = [{ role: 'assistant', content: 'Murano Queen it is. What is the total height of the wall, in feet?' }];
+        assert.equal(buildMuranoCeilingWarningBlock('11ft', noConflictHistory), '');
+
+        const conflictHistory = [{ role: 'assistant', content: 'Murano Queen it is. What is the total height of the wall, in feet?' }];
+        const block = buildMuranoCeilingWarningBlock('6ft', conflictHistory);
+        assert.match(block, /CEILING HEIGHT CONFLICT/);
+        assert.match(block, /Murano Queen/);
+        assert.match(block, /Gioco/);
+    });
+
+    test('MURANO_MIN_CEILING_FT is the same constant as the cabinetry side-cabinet height, by construction', () => {
+        assert.equal(MURANO_MIN_CEILING_FT, SIDE_CABINET_MAX_HEIGHT_FT);
     });
 });
 

@@ -36,7 +36,10 @@
 
 const SIDE_RATE_PER_FT            = 1350;  // RM per ft of LEFTOVER WIDTH, per side cabinet -- unchanged
 const TOP_RATE_PER_FT             = 850;   // RM per ft of TOTAL WALL WIDTH, overhead cabinet -- now priced off total wall width, not bed width
-const SIDE_CABINET_MAX_HEIGHT_FT  = 7;     // physical spec -- fixed build height, not a price input
+// Exported (not just a local const) because it's also the minimum wall height
+// for cabinetry to fit at all -- api/chat.js imports this exact value instead
+// of hardcoding 7 again elsewhere, so the two can never drift out of sync.
+export const SIDE_CABINET_MAX_HEIGHT_FT  = 7;     // physical spec -- fixed build height, not a price input
 const OVERHEAD_CABINET_MAX_HEIGHT_FT = 4;  // physical spec cap -- the overhead cabinet's height shrinks on shorter walls (see overheadCabinetHeightFt), but never exceeds this
 
 /**
@@ -66,6 +69,22 @@ const OVERHEAD_CABINET_MAX_HEIGHT_FT = 4;  // physical spec cap -- the overhead 
 export function calculateCabinetPrice({ wallHeightFt, wallBedWidthFt, totalWallWidthFt, sides = 2 }) {
     if (typeof wallHeightFt !== 'number' || !(wallHeightFt > 0)) {
         throw new Error('wallHeightFt must be a positive number');
+    }
+    // Side cabinets are always built at a fixed SIDE_CABINET_MAX_HEIGHT_FT (7ft) —
+    // a wall shorter than that can't physically fit them at all. Without this
+    // check the formula below would silently return overheadCabinetHeightFt: 0
+    // (nothing built) while topCost still charges full price for it, which is a
+    // real pricing bug, not just a cosmetic one. Callers (api/chat.js) catch this
+    // via `.code` to show the customer an explicit "can't fit" message instead of
+    // a price. Checked before the width validations below so a too-short wall is
+    // reported as itself, not masked by an unrelated width error.
+    if (wallHeightFt < SIDE_CABINET_MAX_HEIGHT_FT) {
+        const err = new Error(
+            `wallHeightFt (${wallHeightFt}ft) is below the ${SIDE_CABINET_MAX_HEIGHT_FT}ft minimum needed to build the side cabinets — surround cabinetry cannot physically fit on a wall this short`
+        );
+        err.code = 'WALL_TOO_SHORT_FOR_CABINETRY';
+        err.minHeightFt = SIDE_CABINET_MAX_HEIGHT_FT;
+        throw err;
     }
     if (typeof wallBedWidthFt !== 'number' || !(wallBedWidthFt > 0)) {
         throw new Error('wallBedWidthFt must be a positive number');
@@ -117,6 +136,10 @@ This applies when a customer wants extra cabinetry built AROUND an existing wall
 calculated estimate — not a fixed catalog price — so you must compute it live from the
 customer's own measurements using the formula below. State it clearly as an ESTIMATE.
 
+Customers may answer in feet OR in metric (cm/m) — accept whichever unit they give you
+as-is; you don't need to convert it yourself or ask them to restate it in feet, the
+server handles unit conversion automatically before calculating anything.
+
 WHAT TO ASK FOR (one at a time, conversationally, like the renovation flow):
 1. Total height of the wall, in feet (this no longer affects price — it only determines
    how tall the overhead cabinet is physically built, up to a 4ft cap)
@@ -139,8 +162,12 @@ relevant, e.g. if a customer asks how tall the cabinets will be):
   taller. On a shorter wall, the overhead cabinet is built shorter so it still fits
   (its height is simply "wall height − 7ft", never less than 0 and never more than 4ft).
   For example: an 11ft (or taller) wall gets the full 4ft overhead cabinet (7 + 4 = 11);
-  a 9ft wall gets a 2ft-tall overhead cabinet (9 − 7 = 2); a 7ft or shorter wall gets no
-  usable overhead cabinet height.
+  a 9ft wall gets a 2ft-tall overhead cabinet (9 − 7 = 2); a wall UNDER 7ft cannot fit
+  surround cabinetry at all — the side cabinets themselves need the full 7ft, so there is
+  no valid configuration to price. If a customer's wall height comes in under 7ft, do NOT
+  calculate or state any price — tell them plainly that surround cabinetry isn't possible
+  on a wall that short, double-check the measurement wasn't a typo, and offer to help with
+  the wall bed itself (without cabinetry) instead.
 There is no surcharge for tall walls anymore — these fixed/capped build heights absorb
 any extra wall height, so a taller wall never costs more. These are spec facts about how
 the cabinetry is physically built — they do NOT change the price formula below, which is

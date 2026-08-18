@@ -14,7 +14,7 @@ import { getWardrobeKnowledge } from '../knowledge/wardrobes.js';
 import { getShowroomKnowledge } from '../knowledge/showroom.js';
 import { getWarrantyKnowledge } from '../knowledge/warranty.js';
 import { getBasicFurnitureKnowledge } from '../knowledge/basicfurniture.js';
-import { getCabinetryKnowledge, calculateCabinetPrice } from '../knowledge/cabinetry.js';
+import { getCabinetryKnowledge, calculateCabinetPrice, SIDE_CABINET_MAX_HEIGHT_FT } from '../knowledge/cabinetry.js';
 import { getRelevantImages } from '../knowledge/productImages.js';
 
 // Gemini's OpenAI-compatible endpoint -- same request/response shape as the
@@ -149,10 +149,12 @@ ${getRelevantKnowledge(message, history)}
 PRODUCT RECOMMENDATION RULES:
 - Study room → Gioco Single with Desk (RM 17,538.11 sale)
 - Living room → Murano Queen with Sofa (RM 23,698.11 sale)
-- Low ceiling below 2.4m → Gioco Series
-- Standard ceiling 2.4m and above → Murano Series
+- Low ceiling below 2.4m (~7ft) → Gioco Series is the ONLY option
+- Standard ceiling 2.4m and above (~7ft+) → Murano Series
+- Murano REQUIRES a 2.4m+ / ~7ft+ ceiling — this is not just a suggestion, Murano is not installable below that. If a customer states or implies a ceiling under ~7ft/2.4m, do NOT recommend or confirm any Murano model — recommend the equivalent Gioco model instead and say plainly why.
 - Always ask ceiling height AND room purpose before recommending wall beds
 - If the integrated Sofa variant is out of budget, recommend the BUDGET WALL BED + SEPARATE SOFA COMBO from the knowledge base (a plain wall bed plus a standalone Basic Sofa) instead of inventing a discount — this is a real, cheaper, two-product combo
+${buildMuranoCeilingWarningBlock(message, history)}
 
 - NEVER combine or "pair" two named model variants of the SAME wall bed unit together (e.g. Murano Queen + Murano Queen Shelves — pick one bed configuration). This does NOT apply to surround cabinetry: a customer CAN add custom surround cabinetry (side + overhead cabinets) around any wall bed configuration — that is a separate structure, not a bed variant. When a customer asks about adding cabinets/storage around a wall bed, treat it as surround cabinetry by default — confirm it's possible and ask for the total wall length, without explaining the bed-variant mutual-exclusivity rule. Only mention that variants can't be combined if the customer specifically names two bed variants together (e.g. "can I get Queen Sofa and Queen Shelves") or is otherwise actually trying to combine bed configurations — never as a general disclaimer.
 
@@ -193,6 +195,12 @@ SURROUND CABINETRY ESTIMATES:
   (total wall width also prices the overhead cabinet, not just the leftover side-cabinet
   width) — one question at a time. These ARE reasonable to ask, since they describe the
   customer's own room, not a product spec.
+- Customers may answer in feet OR metric (cm/m) — accept either, the server converts
+  automatically. You don't need to ask them to restate a measurement in feet.
+- If the wall height comes in under 7ft, surround cabinetry cannot physically fit (the
+  side cabinets alone need the full 7ft) — do not calculate or state a price. Tell the
+  customer plainly it isn't possible on a wall that short, double-check it wasn't a typo,
+  and offer to help with the wall bed itself instead.
 - If a "PRE-CALCULATED WALL BED + CABINETRY ESTIMATE" block appears below, the server
   has already computed every line (wall bed price, side cabinets, overhead cabinet,
   cabinetry subtotal, and the GRAND TOTAL) from this customer's own chosen model and
@@ -424,39 +432,61 @@ function isKnownAmount(val, extraAllowed) {
 // This is intentionally best-effort text parsing, not a robust NLU layer —
 // if extraction still fails, we fall back to the normal strict guard for
 // that message (safe default: no extra amounts get allowed).
+// ── Unit conversion: accept feet (ft/feet/foot/') OR metric (cm/m/meter/metre) ──
+// calculateCabinetPrice() only ever receives feet — every value extracted below is
+// converted immediately after matching, so the formula itself and its documented
+// worked examples in knowledge/cabinetry.js (which are all in feet) stay untouched.
+// round2() is defined further down in this file but hoisted, so it's callable here.
+const CM_PER_FT = 30.48;
+const FT_PER_M = 1 / 0.3048; // ≈ 3.28084
+
+function convertToFeet(value, unit) {
+    const u = unit.toLowerCase();
+    if (u === 'cm' || u.startsWith('centimet')) return round2(value / CM_PER_FT);
+    if (u === 'm' || u.startsWith('met')) return round2(value * FT_PER_M);
+    return value; // ft / feet / foot / '
+}
+
+// Shared unit alternation (repeated inline in each pattern below, matching this
+// file's existing style rather than factoring into a template string). "m" needs
+// a trailing word boundary so it can't accidentally match the first letter of an
+// unrelated word like "minutes" — the other units aren't valid standalone English
+// words, so they don't need the same guard. Every pattern below captures the unit
+// as its OWN group (immediately after the number group) so extractFtValue() and
+// the bare-number fallback in extractCabinetryDimensions() know which unit matched.
 function extractFtValue(text, patterns) {
     for (const p of patterns) {
         const m = text.match(p);
         if (m) {
             const val = parseFloat(m[1]);
-            if (!isNaN(val)) return val;
+            if (!isNaN(val)) return convertToFeet(val, m[2]);
         }
     }
     return null;
 }
 
-const BARE_FT_PATTERN = /(\d+(?:\.\d+)?)\s*(?:ft|feet|')/;
+const BARE_LENGTH_PATTERN = /(\d+(?:\.\d+)?)\s*(ft|feet|foot|'|cm|centimeters?|centimetres?|met(?:er|re)s?|m\b)/;
 
 // Keyword-anchored, but tolerant of ordinary sentence phrasing in between the
 // keyword and the number — e.g. "The height of the wall is 8.5ft." has 16
 // filler characters between "height" and "8.5ft", which the old rigid
 // single-word-gap regexes did not allow, so they silently failed to match.
 const HEIGHT_PATTERNS = [
-    /(?:wall\s*)?height[^\d]{0,30}?(\d+(?:\.\d+)?)\s*(?:ft|feet|')/,
-    /(\d+(?:\.\d+)?)\s*(?:ft|feet|')[^\d]{0,20}?(?:tall|high\b|in\s*height)/
+    /(?:wall\s*)?height[^\d]{0,30}?(\d+(?:\.\d+)?)\s*(ft|feet|foot|'|cm|centimeters?|centimetres?|met(?:er|re)s?|m\b)/,
+    /(\d+(?:\.\d+)?)\s*(ft|feet|foot|'|cm|centimeters?|centimetres?|met(?:er|re)s?|m\b)[^\d]{0,20}?(?:tall|high\b|in\s*height)/
 ];
 // Strict form (contains the literal word "total") is always safe to check.
 const TOTAL_WIDTH_STRICT_PATTERNS = [
-    /total[^\d]{0,25}?width[^\d]{0,25}?(\d+(?:\.\d+)?)\s*(?:ft|feet|')/
+    /total[^\d]{0,25}?width[^\d]{0,25}?(\d+(?:\.\d+)?)\s*(ft|feet|foot|'|cm|centimeters?|centimetres?|met(?:er|re)s?|m\b)/
 ];
 // Looser forms ("the wall is 10ft wide") are only tried when this same message
 // doesn't look like it's actually describing the BED's own width — a customer
 // occasionally volunteers that unprompted even though we no longer ask for it,
 // and "the wall bed is 5.5ft wide" should not get miscounted as the total wall.
-const BED_WIDTH_MENTION_GUARD = /(?:wall\s*)?bed[^\d]{0,20}?(?:\d+(?:\.\d+)?)\s*(?:ft|feet|')\s*wide|(?:\d+(?:\.\d+)?)\s*(?:ft|feet|')[^\d]{0,15}?wide[^\d]{0,10}?(?:wall\s*)?bed/;
+const BED_WIDTH_MENTION_GUARD = /(?:wall\s*)?bed[^\d]{0,20}?(?:\d+(?:\.\d+)?)\s*(?:ft|feet|foot|'|cm|centimeters?|centimetres?|met(?:er|re)s?|m\b)\s*wide|(?:\d+(?:\.\d+)?)\s*(?:ft|feet|foot|'|cm|centimeters?|centimetres?|met(?:er|re)s?|m\b)[^\d]{0,15}?wide[^\d]{0,10}?(?:wall\s*)?bed/;
 const TOTAL_WIDTH_LOOSE_PATTERNS = [
-    /wall[^\d]{0,15}?(?:is|of)[^\d]{0,10}?(\d+(?:\.\d+)?)\s*(?:ft|feet|')\s*wide/,
-    /(\d+(?:\.\d+)?)\s*(?:ft|feet|')[^\d]{0,10}?(?:wide|width)[^\d]{0,10}?wall\b/
+    /wall[^\d]{0,15}?(?:is|of)[^\d]{0,10}?(\d+(?:\.\d+)?)\s*(ft|feet|foot|'|cm|centimeters?|centimetres?|met(?:er|re)s?|m\b)\s*wide/,
+    /(\d+(?:\.\d+)?)\s*(ft|feet|foot|'|cm|centimeters?|centimetres?|met(?:er|re)s?|m\b)[^\d]{0,10}?(?:wide|width)[^\d]{0,10}?wall\b/
 ];
 
 // Wall bed width is NEVER asked from the customer — it's a fixed spec of
@@ -534,27 +564,78 @@ function extractCabinetryDimensions(history, message) {
         if (matchedAny) continue;
 
         // 2) Bare number with no context of its own — infer from what the bot just asked.
-        const bareMatch = userText.match(BARE_FT_PATTERN);
+        const bareMatch = userText.match(BARE_LENGTH_PATTERN);
         if (!bareMatch) continue;
         const bareVal = parseFloat(bareMatch[1]);
         if (isNaN(bareVal)) continue;
+        const bareFt = convertToFeet(bareVal, bareMatch[2]);
 
-        if (/total\s*(?:wall\s*)?width/.test(prevAssistant)) totalWidthFt = bareVal;
-        else if (/height/.test(prevAssistant)) heightFt = bareVal;
+        if (/total\s*(?:wall\s*)?width/.test(prevAssistant)) totalWidthFt = bareFt;
+        else if (/height/.test(prevAssistant)) heightFt = bareFt;
     }
 
     return { heightFt, totalWidthFt };
+}
+
+// Minimum ceiling a Murano model can be installed under, reusing the exact
+// same constant as the cabinetry side-cabinet build height (both are the
+// "~7ft / 2.4m" threshold knowledge/wallbeds.js already describes in prose)
+// so this can never drift from the cabinetry formula's own number.
+// NOTE: 2.4m is actually ≈7.87ft, not 7ft exactly — 7ft is what the business
+// asked to enforce in code, so a ceiling between 7ft and 7.87ft currently
+// still passes this check even though it's technically under the knowledge
+// text's stated 2.4m cutoff. Worth confirming with MOCOF whether the exact
+// 7.87ft/2.4m figure should be enforced instead.
+const MURANO_MIN_CEILING_FT = SIDE_CABINET_MAX_HEIGHT_FT;
+
+// Reuses the SAME extraction the cabinetry flow already runs (wall/ceiling
+// height + selected model) — this is not a new extraction path, it just
+// looks at those same two facts through a different lens: is a Murano model
+// on the table for a ceiling it can't actually fit under? Fires as soon as
+// both facts are known, independent of whether cabinetry or price was ever
+// mentioned, since this is a hard installability constraint, not a price.
+function detectMuranoCeilingConflict(message, history) {
+    const { heightFt } = extractCabinetryDimensions(history, message);
+    const selectedModel = extractSelectedWallBedModel(history, message);
+    if (!heightFt || !selectedModel) return null;
+    if (heightFt >= MURANO_MIN_CEILING_FT) return null;
+    if (!/murano/i.test(selectedModel.label)) return null;
+    return { heightFt, minCeilingFt: MURANO_MIN_CEILING_FT, conflictingLabel: selectedModel.label };
+}
+
+// Injected into PRODUCT RECOMMENDATION RULES so the model corrects course
+// immediately if it (or the customer) has already named a Murano model for
+// a ceiling that can't fit one — rather than relying only on the static
+// "Murano requires 2.4m+" prompt text to self-police an existing mistake.
+function buildMuranoCeilingWarningBlock(message, history) {
+    const conflict = detectMuranoCeilingConflict(message, history);
+    if (!conflict) return '';
+    return [
+        '',
+        `CEILING HEIGHT CONFLICT — ACT ON THIS NOW: the customer's stated wall/ceiling height is ${conflict.heightFt}ft, below the ${conflict.minCeilingFt}ft (~2.4m) minimum the Murano series requires. "${conflict.conflictingLabel}" has been named in this conversation but is NOT installable at this ceiling height. Correct course now: tell the customer plainly that ${conflict.conflictingLabel} won't fit their ceiling, and recommend the equivalent Gioco model instead.`
+    ].join('\n');
 }
 
 // Runs extraction + the real formula once; both the guard-allowlist and the
 // system-prompt pre-calculated block (below) read from this single source
 // so they can never disagree with each other.
 function getCabinetryEstimateFromContext(message, history) {
-    try {
-        const { heightFt, totalWidthFt } = extractCabinetryDimensions(history, message);
-        const selectedModel = extractSelectedWallBedModel(history, message);
-        if (!heightFt || !selectedModel) return null;
+    const { heightFt, totalWidthFt } = extractCabinetryDimensions(history, message);
+    const selectedModel = extractSelectedWallBedModel(history, message);
+    if (!heightFt || !selectedModel) return null;
 
+    // Checked BEFORE calling calculateCabinetPrice() and outside the try/catch
+    // below, so this specific, expected condition (wall too short to fit
+    // cabinetry) is distinguishable from "not enough info yet" (e.g. total
+    // width not collected) — those two cases need different messages to the
+    // customer, not the same silent `return null`. calculateCabinetPrice()
+    // also guards this itself (defense in depth for any other caller), but
+    // checking it here first lets us attach the customer-facing reason.
+    if (heightFt < SIDE_CABINET_MAX_HEIGHT_FT) {
+        return { blocked: true, reason: 'WALL_TOO_SHORT_FOR_CABINETRY', heightFt, minHeightFt: SIDE_CABINET_MAX_HEIGHT_FT };
+    }
+
+    try {
         const result = calculateCabinetPrice({
             wallHeightFt: heightFt,
             wallBedWidthFt: selectedModel.widthFt,
@@ -594,7 +675,11 @@ function round2(n) {
 // — those numbers become allowed even though they're not in the static catalog.
 function computeCabinetryAllowedAmounts(message, history) {
     const est = getCabinetryEstimateFromContext(message, history);
-    if (!est) return [];
+    // A blocked (wall-too-short) result has no legitimate price to allow —
+    // if the model states one anyway despite the prompt instruction not to,
+    // the price guardrail should treat it as unrecognized, same as any other
+    // fabricated figure.
+    if (!est || est.blocked) return [];
     return [
         est.sideCostPerSide, est.sideCostTotal, est.topCost, est.total,
         est.wallBedSalePrice, est.wallBedRetailPrice, est.grandTotal
@@ -633,9 +718,21 @@ function hasCabinetryPriceIntent(message, history) {
 // exact figures rather than compute them itself — this removes reliance on
 // the model's arithmetic entirely, not just the after-the-fact guard check.
 function buildCabinetryEstimateBlock(message, history) {
-    if (!hasCabinetryPriceIntent(message, history)) return '';
     const est = getCabinetryEstimateFromContext(message, history);
-    if (!est) return '';
+
+    // Checked BEFORE the price-intent gate below and regardless of it — "this
+    // can't fit" is a hard constraint the customer needs to hear as soon as
+    // it's known (so the bot stops asking for total width for something
+    // impossible), not a price reveal that should wait for an explicit ask.
+    if (est && est.blocked && est.reason === 'WALL_TOO_SHORT_FOR_CABINETRY') {
+        return [
+            '',
+            `SURROUND CABINETRY NOT POSSIBLE FOR THIS CUSTOMER: their stated wall height is ${est.heightFt}ft, below the ${est.minHeightFt}ft minimum needed to build the side cabinets (side cabinets are always built at a fixed ${est.minHeightFt}ft — see the formula above). Do NOT calculate or state any cabinetry price. Tell the customer plainly that surround cabinetry can't fit on a wall this short, double-check the measurement in case it was a typo, and offer to help with the wall bed itself (without cabinetry) instead.`
+        ].join('\n');
+    }
+
+    if (!hasCabinetryPriceIntent(message, history)) return '';
+    if (!est || est.blocked) return '';
 
     const lines = [
         '',
@@ -711,13 +808,17 @@ export {
     computeCabinetryAllowedAmounts,
     buildCabinetryEstimateBlock,
     hasCabinetryPriceIntent,
+    detectMuranoCeilingConflict,
+    buildMuranoCeilingWarningBlock,
+    convertToFeet,
     findHallucinatedPrices,
     isKnownAmount,
     getGeminiApiKeys,
     callGeminiWithFallback,
     MASTER_PRICE_LIST,
     KNOWLEDGE_MODULES,
-    BASIC_FURNITURE_COMPANION_KEYS
+    BASIC_FURNITURE_COMPANION_KEYS,
+    MURANO_MIN_CEILING_FT
 };
 
 // ── Main handler ──────────────────────────────────────────────
