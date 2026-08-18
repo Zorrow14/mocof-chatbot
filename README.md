@@ -1,167 +1,210 @@
 # MOCOF Chatbot
 
-> A lightweight chatbot for MOCOF (Malaysian furniture & interior design) that runs as a Vercel serverless app and uses Google's Gemini API via OpenAI-compatible endpoints.
+A Vercel-hosted AI sales assistant for MOCOF that answers product questions, recommends furniture, and handles renovation/product quote flows using Google's Gemini API via the OpenAI-compatible endpoint.
 
 ## Overview
 
-This repository implements a small, production-ready chat widget ("Moco") and a serverless backend that forwards customer messages to the Gemini chat completion API. The backend composes a controlled system prompt from curated product and service knowledge files, computes live custom-cabinetry price estimates where applicable, verifies every price in the model's reply against real business data before it's sent to a customer, and returns concise, branded replies to the client widget. Separate product-image matching logic attaches real catalog photos when a product is mentioned.
+This repo contains a lightweight storefront chatbot with:
 
-## Quick Start
+- a floating customer chat widget in `public/index.html`
+- a serverless API handler in `api/chat.js`
+- product/service knowledge modules in `knowledge/`
+- a pricing guardrail that blocks invented RM figures before they reach the customer
+- automatic product image matching from the knowledge layer
+- cabinet estimation logic that calculates live room-based pricing from user measurements
+
+The app is designed for MOCOF's wall beds, sofa beds, tables, kitchen, wardrobes, showroom, warranty, and renovation flows.
+
+## Stack
+
+- Node.js 20
+- Vercel serverless functions
+- Gemini via OpenAI-compatible chat completions API
+- Plain JavaScript, no build step required
+
+## Quick start
 
 Prerequisites:
+
 - Node.js 20.x
-- Vercel CLI (for `npm run dev`) or deploy directly via the Vercel dashboard
-- Set the following environment variable in Vercel or your shell:
-   - `GEMINI_API_KEY` (required)
+- Vercel CLI for local development, or deploy directly to Vercel
+- An environment variable for Gemini access
+
+Set the required environment variables:
+
+```bash
+GEMINI_API_KEY=your_key_here
+# optional fallback key
+GEMINI_API_KEY_2=another_key_here
+```
 
 Install and run locally:
 
-\`\`\`bash
+```bash
 npm install
 npm run dev
-\`\`\`
+```
 
-Open `http://localhost:3000/` to view the chat widget while `vercel dev` is running.
+Then open:
 
-Run tests before committing:
+```text
+http://localhost:3000/
+```
 
-\`\`\`bash
-npm test                    # Run full test suite
-npm run test:consistency    # Run consistency checks
-\`\`\`
+Test the API directly:
 
-Test the API directly (example):
-
-\`\`\`bash
+```bash
 curl -X POST http://localhost:3000/api/chat \
   -H "Content-Type: application/json" \
-  -d '{"message":"Tell me about your wall bed products", "history": [] }'
-\`\`\`
+  -d '{"message":"Tell me about your wall bed products","history":[]}'
+```
+
+Run the project checks:
+
+```bash
+npm test
+npm run test:consistency
+```
 
 ## Project structure
 
-- `package.json`: project metadata and scripts (`dev` uses `vercel dev`, `test` and `test:consistency` for testing).
-- `vercel.json`: headers and rewrites used for local/production behavior.
-- `api/chat.js`: the serverless handler — knowledge routing, system prompt assembly, the Gemini call, live cabinetry price calculation, and the price-hallucination guardrail all live here.
-- `.github/workflows/ci.yml`: automated CI pipeline that syntax-checks all JS files and runs test suite on every push and pull request.
-- `knowledge/`: modules that export product/service knowledge used to build the system prompt (see below for the full list — two of them also export plain functions/data, not just prompt text).
-- `knowledge/productImages.js`: a separate image matcher that maps product names to real catalog photos and attaches them when relevant.
-- `public/index.html`: a minimal floating chat widget that calls `/api/chat`.
+```text
+api/
+  chat.js                 # Serverless chat handler and pricing logic
+knowledge/
+  basicfurniture.js       # Budget-ready alternatives
+  cabinetry.js            # Surround-cabinetry pricing logic
+  kitchen.js              # Kitchen product knowledge
+  productImages.js        # Product-to-image matching
+  renovation.js           # Renovation flow knowledge
+  showroom.js            # Showroom info and visit guidance
+  sofabeds.js            # Sofa bed knowledge
+  tables.js              # Tables and dining/desk inventory
+  wallbeds.js            # Wall bed model data and pricing tables
+  wardrobes.js           # Wardrobe knowledge
+  warranty.js            # Warranty info
+public/
+  index.html             # Floating chat widget UI
+package.json             # Scripts and Node version
+vercel.json              # Vercel headers and rewrites
+.github/workflows/ci.yml # CI checks for syntax and tests
+```
 
-See the files in the repo for implementation details.
+## Runtime behavior
 
-## How the backend works
+The request flow is:
 
-1. Client (browser widget) sends a POST to `/api/chat` with a JSON body:
-   - `message` (string) — the user's latest message (required)
-   - `history` (array) — optional conversation history (user/assistant pairs)
+1. The client sends a POST to `/api/chat` with a `message` and recent `history`.
+2. `api/chat.js` gathers relevant knowledge from `knowledge/*.js` based on the current message and recent turns.
+3. The system prompt is built with branding rules, pricing rules, and response formatting instructions.
+4. The message is sent to Gemini using the OpenAI-compatible API.
+5. The reply is checked for invalid RM amounts before returning it to the client.
+6. Product image matches are attached when relevant.
 
-2. `api/chat.js` builds a system prompt that contains:
-   - A short persona description (the `Moco` brand voice and response rules).
-   - Business-specific rules (pricing presentation, WhatsApp usage rules, recommendation heuristics, renovation lead collection, surround-cabinetry estimation).
-   - Curated product knowledge concatenated from up to `MAX_KNOWLEDGE_MODULES` (currently 3) `knowledge/*.js` modules. Which modules are included is decided by `getRelevantKnowledge()`: each module in the `KNOWLEDGE_MODULES` array has a regex `test` — matches against the **current message** are prioritized over matches that only appear in recent history (last 4 messages), and the total is capped so a single multi-topic message can't balloon the prompt past Gemini's request budget. Additionally, cheaper alternatives from `basicfurniture.js` are automatically included whenever any of the companion categories (wall bed, sofa bed, table, kitchen, wardrobe) are relevant, so customers always get budget-alternative suggestions without the model needing to remember to offer them.
-   - If the conversation contains enough information for a live surround-cabinetry price estimate **and the customer explicitly requests a quote or estimate**, a **pre-calculated** breakdown block (computed in JS, not by the model) is appended — see "Pricing accuracy & guardrails" below.
+## Knowledge routing and guardrails
 
-3. The server converts the history into Gemini's OpenAI-compatible message format (capped to the last `MAX_HISTORY_TURNS_SENT_TO_MODEL`, currently 12, turns), appends the user's message, and calls the Gemini chat completions endpoint with the model in `GEMINI_MODEL` (currently `gemini-3.5-flash-lite`) using the request settings defined in `api/chat.js`.
+The app intentionally does more than just send raw prompts to Gemini.
 
-4. `api/chat.js` uses a single API key via the environment variable `GEMINI_API_KEY`.
+### Knowledge selection
 
-5. Before the reply is sent to the client, every `RM` figure in it is checked against the price guardrail (below). If anything unrecognized is found, the whole reply is swapped for a safe "let's confirm on WhatsApp" fallback rather than risking a wrong quote reaching a customer.
+The `KNOWLEDGE_MODULES` list in `api/chat.js` matches categories like wall beds, sofa beds, kitchen, wardrobes, renovation, warranty, and more. Matching considers:
 
-6. The response is relayed to the client as JSON: `{ success: true, message: "..." }` or an error payload on failure.
+- the current message
+- recent conversation history
+- priority ordering when multiple categories match
+- a cap to keep prompts compact and predictable
 
-**Model note:** Gemini model names and request constraints can change over time. Check Google's Gemini/OpenAI-compatible API docs occasionally and update the `GEMINI_MODEL` constant if needed. If you switch model families, double-check the request parameters in `api/chat.js` too.
+`basicfurniture.js` is automatically included alongside related categories such as wall beds, sofa beds, kitchen, tables, and wardrobes so cheaper alternatives can be recommended without relying on the model to remember them.
 
-Other implementation notes:
-- CORS and common headers are set in the handler and mirrored in `vercel.json`.
-- The server enforces prompt-level rules such as formatting (only **bold** allowed for emphasis) and response length guidelines.
+### Price safety checks
 
-## Knowledge modules
+The app maintains a master list of valid MOCOF prices and rejects replies containing RM figures that are not recognized as real catalog values or customer-provided amounts.
 
-| File | Exports | Notes |
-|---|---|---|
-| `wallbeds.js` | `getWallBedKnowledge()`, `WALLBED_MODEL_WIDTHS_FT`, `WALLBED_MODEL_PRICING` | The width lookup and the granular pricing table are structured data (not just prompt text) — they're imported directly by `chat.js` to derive a wall bed's width and sale/retail prices from whichever model has been discussed, so the bot never has to ask a customer for that spec or price. |
-| `sofabeds.js` | `getSofaBedKnowledge()` | |
-| `tables.js` | `getTableKnowledge()` | |
-| `kitchen.js` | `getKitchenKnowledge()` | |
-| `wardrobes.js` | `getWardrobeKnowledge()` | Standalone/free-standing wardrobes — distinct from surround cabinetry, see `cabinetry.js`. |
-| `showroom.js` | `getShowroomKnowledge()` | |
-| `warranty.js` | `getWarrantyKnowledge()` | |
-| `renovation.js` | `getRenovationKnowledge()` | |
-| `basicfurniture.js` | `getBasicFurnitureKnowledge()` | MOCOF Basic standalone furniture (living room, dining room, hallway/storage, bedroom, study tables) — automatically included whenever any companion category (wall bed, sofa bed, table, kitchen, wardrobe) is routed, ensuring budget-alternative suggestions are always available without explicit model instruction. |
-| `productImages.js` | `getRelevantImages()` | Product-name to photo matching for the reply image attachment flow. |
-| `cabinetry.js` | `getCabinetryKnowledge()`, `calculateCabinetPrice()` | Surround cabinetry (side + overhead cabinets built around a wall bed). `calculateCabinetPrice()` is a pure function implementing the real pricing formula — `chat.js` calls it directly to compute a live estimate rather than trusting the model to do the arithmetic. |
+This includes a special exception for live cabinetry calculations:
 
-Most modules export a single function returning a template string that gets concatenated into the system prompt. `wallbeds.js` and `cabinetry.js` are the exceptions — they also export plain data/functions that `chat.js` uses directly in code, not just as prompt text.
+- wall height + model + wall width are extracted from the conversation
+- the actual pricing formula is computed server-side
+- the resulting estimate is allowed only for surround cabinetry, not as a general pricing shortcut
 
-To add or update product information:
-1. Add a new `knowledge/<topic>.js` exporting `get<Topic>Knowledge()` that returns the text to include in the prompt.
-2. Import it in `api/chat.js` and add an entry to the `KNOWLEDGE_MODULES` array: `{ key: 'yourTopic', test: /keyword|regex/, fn: getYourTopicKnowledge }`. Order matters if you expect overlap with other modules on a single message, since the array order is the tie-break priority when `MAX_KNOWLEDGE_MODULES` is reached.
-3. If your knowledge contains prices, they're automatically picked up by the price guardrail's `MASTER_PRICE_LIST` — no extra step needed, as long as the module is added to the `extractAmounts([...])` list in `chat.js`.
-4. If the product should attach a photo, add or update the mapping in `knowledge/productImages.js` so the backend can match the name to a real image URL.
+If the model invents a price, the server retries once and then falls back to a safe confirmation response instead of sending a wrong quote to the customer.
 
-Design notes: keep the knowledge strings factual and avoid adding instructions that conflict with the system-level persona and formatting rules.
+## Cabinetry estimate flow
 
-## Pricing accuracy & guardrails
+The live estimate flow is handled in `api/chat.js` and `knowledge/cabinetry.js`.
 
-This bot has been through real hallucination incidents in testing (inventing non-existent products, misquoting prices, denying real products exist), so two layers of protection are built in:
+What it does:
 
-**1. History-aware knowledge routing.** `getRelevantKnowledge()` checks recent conversation history, not just the current message — otherwise a natural follow-up like "what is X?" (where X was named by the bot a turn earlier) loses all context and the bot may wrongly deny a real product exists.
+- detects the selected wall bed model from recent conversation context
+- extracts room dimensions from customer replies
+- calculates the side cabinet, overhead cabinet, and total estimate using the real pricing formula
+- injects the calculated breakdown into the prompt so the model stays aligned with the actual estimate
+- validates the final numbers against the same pricing guardrail
 
-**2. The price guardrail (`findHallucinatedPrices` / `isKnownAmount` in `chat.js`).** Before any reply reaches the client, every `RM` figure in it is checked against:
-   - `MASTER_PRICE_LIST` — every real price across the entire knowledge base (not just what got routed into this turn's prompt), with a small (`PRICE_TOLERANCE`, RM2) tolerance to forgive the model rounding off cents in casual phrasing.
-   - Any amount the *customer themselves* stated (so echoing back a stated budget is never flagged).
-   - Any amount matching a **live cabinetry estimate** computed for this conversation (see below).
+This prevents the model from inventing or miscalculating custom cabinetry totals.
 
-   If a reply contains a price matching none of the above, the entire reply is replaced with a generic "let's confirm on WhatsApp" fallback rather than risking a wrong number reaching a customer. Check server logs for `Blocked reply containing unrecognized price(s)` if this fires more than expected — it either caught a genuine hallucination (good) or a legitimate price is being phrased in a format the guardrail doesn't recognize (needs tuning).
+## API contract
 
-**3. Live surround-cabinetry pricing.** This is the one case where the model is allowed to state a price that isn't literally written in a knowledge file — it's a formula-based estimate computed from the customer's own wall measurements. `chat.js` extracts wall height / total wall width from the conversation via regex (`extractCabinetryDimensions`), derives the wall bed's width automatically from whichever model has been discussed (`extractSelectedWallBedModel` + `WALLBED_MODEL_WIDTHS_FT` — the customer is never asked for this directly, since they likely wouldn't know it), runs the real formula (`calculateCabinetPrice()` in `knowledge/cabinetry.js`), and injects the already-computed breakdown into the system prompt so the model relays exact figures instead of doing its own arithmetic. The same computation feeds the guardrail's allow-list, so the two can never disagree with each other. See the comments in `knowledge/cabinetry.js` for the formula itself and worked examples.
+POST `/api/chat`
 
-## Response & persona rules (enforced in the system prompt)
+Request body:
 
-- Persona: Warm, professional, concise. Ask clarifying questions when needed, one at a time.
-- WhatsApp contact: only appended for renovation budget/design flows (explicit budget/design mention required), or when directing a customer to confirm a custom quote.
-- Pricing: always present both `Retail: RM X | Sale: RM X` when price data exists; never fabricate prices — except the live cabinetry estimate described above, which is explicitly carved out as the one allowed exception.
-- Formatting: use **only** Markdown bold (double asterisks) for emphasis. No italics or other Markdown.
-- Length: prefer concise replies (maximum about 120 words unless more detail is requested).
+```json
+{
+  "message": "I want a wall bed for my condo",
+  "history": [
+    { "role": "user", "content": "Hi" },
+    { "role": "assistant", "content": "Hi! How can I help?" }
+  ]
+}
+```
 
-## Extending or customizing
+Response:
 
-- To change the model or request settings, update the constants at the top of `api/chat.js` (`GEMINI_URL`, `GEMINI_MODEL`, and the `requestBody` parameters in the handler).
-- To add richer user intent detection, add entries to the `KNOWLEDGE_MODULES` array rather than writing ad-hoc `if` chains — this keeps routing, priority, and the `MAX_KNOWLEDGE_MODULES` cap consistent.
-- `MAX_KNOWLEDGE_MODULES` and `MAX_HISTORY_TURNS_SENT_TO_MODEL` are the two token-budget levers if you need to trade off context richness against Gemini's request limits.
-- `PRICE_TOLERANCE` (in `chat.js`) controls how much rounding the guardrail forgives before treating a price as suspicious.
+```json
+{
+  "success": true,
+  "message": "Here are the options...",
+  "images": []
+}
+```
 
-## Testing & CI
-
-- The project includes automated CI via GitHub Actions (`.github/workflows/ci.yml`).
-- On every push and pull request, the CI pipeline:
-  - Syntax-checks all JavaScript files in the repo (catches typos before deployment).
-  - Runs the full test suite (`npm test`).
-- Use `npm test` locally before pushing to catch issues early.
+If an API error occurs, the endpoint returns an error payload with a status code and details.
 
 ## Deployment
 
-- Deploy to Vercel and set the environment variable `GEMINI_API_KEY`.
-- The `vercel.json` file contains header rules and rewrites used by the project.
-- The CI pipeline validates all code before merge, so pull requests with syntax errors or test failures are automatically flagged.
+This project is designed for Vercel.
 
-## Troubleshooting
+1. Push the repo to GitHub.
+2. Import it into Vercel.
+3. Add the required environment variables in the Vercel project settings:
+   - `GEMINI_API_KEY`
+   - optional `GEMINI_API_KEY_2`
+4. Deploy.
 
-- `500` / "API key missing": ensure `GEMINI_API_KEY` is set in your environment.
-- `502` / Gemini API errors: check your API key is valid, rate limits, and the `details` field in the error JSON returned by the endpoint.
-- Bot gives a generic "confirm on WhatsApp" reply instead of an expected price: check server logs for `Blocked reply containing unrecognized price(s)` — see "Pricing accuracy & guardrails" above.
-- Cabinetry estimate not appearing: it requires both a wall height AND an established wall bed model somewhere in the recent conversation (and total wall width too, if height is over 9ft) — if any of those is missing, the bot will keep asking rather than guessing.
+`vercel.json` currently includes CORS headers and the root rewrite to the public chat UI.
 
-## Known limitations
+## CI and validation
 
-- `vercel.json` rewrites `/widget` → `/public/widget.html`, which doesn't exist in this repo — that route is currently dead.
-- `/api/chat` has no rate limiting or authentication; the endpoint URL is visible in the client-side widget source, so it can be called directly by anyone.
-- No server-side cap on incoming message length (only the widget's client-side `maxlength`).
+The repo includes a GitHub Actions workflow in `.github/workflows/ci.yml` that:
 
-## Notes & safety
+- installs dependencies
+- validates all JavaScript files with `node --check`
+- runs the project test suite with `npm test`
 
-- Do NOT commit API keys or other secrets to the repository. Use Vercel environment variables or another secrets store.
-- System prompt and knowledge content control the assistant heavily. When updating prompt text, validate behavior with a few test queries — especially anything touching pricing, given the guardrail's exact-match nature.
+## Notes and limits
+
+- The chatbot is intentionally prompt-driven and knowledge-driven; product and pricing accuracy depend on the curated modules in `knowledge/`.
+- `/api/chat` is not protected with authentication or rate limiting by default.
+- The current chat UI is served from `/` via `public/index.html`.
+- The `/widget` rewrite exists in `vercel.json` but is not part of the active front-end flow in this repo.
+- Do not commit real API keys to source control; use environment variables in Vercel or another secret store.
+
+## Security and reliability
+
+- Keep API keys in environment variables, not in committed files.
+- Validate prompt changes against real product and pricing queries.
+- Treat pricing-related prompt edits carefully because the guardrail depends on exact catalog values and measured estimates.
 
 ---
+
+This project is built for MOCOF customer support and product sales, with strict safeguards around pricing and product claims to reduce hallucinated responses in production.
