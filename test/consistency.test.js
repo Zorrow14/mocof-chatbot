@@ -17,6 +17,8 @@ import assert from 'node:assert/strict';
 
 import {
     getRelevantKnowledge,
+    getRelevantKnowledgeModuleKeys,
+    buildSystemPrompt,
     extractCabinetryDimensions,
     getCabinetryEstimateFromContext,
     computeCabinetryAllowedAmounts,
@@ -27,6 +29,8 @@ import {
     convertToFeet,
     findHallucinatedPrices,
     isKnownAmount,
+    isRenovationLeadCompletionReply,
+    parseLeadExtractionJson,
     MASTER_PRICE_LIST,
     KNOWLEDGE_MODULES,
     BASIC_FURNITURE_COMPANION_KEYS,
@@ -549,6 +553,135 @@ describe('detectMuranoCeilingConflict — wall-bed series ceiling restriction', 
 
     test('MURANO_MIN_CEILING_FT is the same constant as the cabinetry side-cabinet height, by construction', () => {
         assert.equal(MURANO_MIN_CEILING_FT, SIDE_CABINET_MAX_HEIGHT_FT);
+    });
+});
+
+// ── Phase 4.2: which knowledge module(s) fired, for event logging ───────
+describe('getRelevantKnowledgeModuleKeys', () => {
+    test('returns the matched module key(s) for an on-topic message', () => {
+        const { keys, usedFallback } = getRelevantKnowledgeModuleKeys('tell me about wall beds', []);
+        assert.ok(keys.includes('wallbed'));
+        assert.equal(usedFallback, false);
+    });
+
+    test('a companion-category message also reports basicFurniture as fired', () => {
+        const { keys } = getRelevantKnowledgeModuleKeys('any cheaper wall bed options?', []);
+        assert.ok(keys.includes('wallbed'));
+        assert.ok(keys.includes('basicFurniture'));
+    });
+
+    test('an unrecognized message reports the fallback modules and usedFallback: true', () => {
+        const { keys, usedFallback } = getRelevantKnowledgeModuleKeys('asdkjaslkdj qqqq zzz', []);
+        assert.deepEqual(keys, ['wallbed', 'showroom']);
+        assert.equal(usedFallback, true);
+    });
+
+    test('getRelevantKnowledge (text) and getRelevantKnowledgeModuleKeys (keys) agree on which modules fired', () => {
+        // Same underlying selection — this pins that refactor down: the two
+        // must never independently drift into disagreeing about routing.
+        const message = 'I want a Murano Queen with side cabinets';
+        const text = getRelevantKnowledge(message, []);
+        const { keys } = getRelevantKnowledgeModuleKeys(message, []);
+        for (const key of keys) {
+            const mod = KNOWLEDGE_MODULES.find(m => m.key === key);
+            assert.ok(text.includes(mod.fn().slice(0, 40)), `expected knowledge text to include the start of ${key}'s content`);
+        }
+    });
+});
+
+// ── Phase 4.1: completed renovation lead detection + field extraction ───
+describe('isRenovationLeadCompletionReply', () => {
+    test('matches the real sign-off (with the corrected renovation WhatsApp number)', () => {
+        const reply = 'Thank you! Please reach out to our design consultant on WhatsApp at +60 12-475 4568 to schedule your free consultation and share these details.';
+        assert.equal(isRenovationLeadCompletionReply(reply), true);
+    });
+
+    test('does NOT match the general/wall-bed WhatsApp number, even with "consultant" present', () => {
+        // Regression test for the actual bug fixed in this phase: the
+        // RENOVATION LEAD COLLECTION prompt block used to say 568 instead
+        // of 475, which would have made this detector (and the real prompt
+        // instruction) point at the wrong WhatsApp line entirely.
+        const reply = 'Thank you! Please reach out to our design consultant on WhatsApp at +60 12-568 4568 to schedule your free consultation.';
+        assert.equal(isRenovationLeadCompletionReply(reply), false);
+    });
+
+    test('does NOT match the right number without a completion word nearby', () => {
+        const reply = 'Our renovation team can be reached at +60 12-475 4568 if you have questions.';
+        assert.equal(isRenovationLeadCompletionReply(reply), false);
+    });
+
+    test('does NOT match an ordinary reply with neither signal', () => {
+        assert.equal(isRenovationLeadCompletionReply('Sure, the Murano Queen is RM 18,245.60.'), false);
+    });
+
+    test('null/empty replies do not match', () => {
+        assert.equal(isRenovationLeadCompletionReply(null), false);
+        assert.equal(isRenovationLeadCompletionReply(''), false);
+    });
+});
+
+describe('buildSystemPrompt — renovation WhatsApp number consistency', () => {
+    test('the RENOVATION LEAD COLLECTION completion line uses the renovation WhatsApp number (475), not the general one (568)', () => {
+        const prompt = buildSystemPrompt('I want to renovate my condo', []);
+        // Deliberately the colon form ("RENOVATION LEAD COLLECTION:\n") to
+        // find chat.js's own inline instruction block specifically —
+        // knowledge/renovation.js's block (also included in this prompt)
+        // shares the same header phrase but with an em-dash, not a colon,
+        // right after it ("RENOVATION LEAD COLLECTION — ask ONE...").
+        const sectionStart = prompt.indexOf('RENOVATION LEAD COLLECTION:\n');
+        assert.notEqual(sectionStart, -1, 'expected to find the chat.js RENOVATION LEAD COLLECTION: block');
+        const sectionEnd = prompt.indexOf('\n\n', sectionStart);
+        const section = prompt.slice(sectionStart, sectionEnd === -1 ? undefined : sectionEnd);
+        assert.match(section, /\+60 12-475 4568/);
+        assert.doesNotMatch(section, /\+60 12-568 4568/);
+    });
+});
+
+describe('parseLeadExtractionJson', () => {
+    const validJson = JSON.stringify({
+        propertyType: 'Condo', location: 'Mont Kiara', budgetRange: 'RM80k-150k',
+        designStyle: 'Japandi', numberOfRooms: '3 bedrooms', floorPlanAvailable: 'Yes',
+        roomDimensions: '', existingObstacles: 'load-bearing column in living room',
+        targetCompletionDate: 'end of next year'
+    });
+
+    test('parses clean JSON into all 9 fields', () => {
+        const fields = parseLeadExtractionJson(validJson);
+        assert.equal(fields.propertyType, 'Condo');
+        assert.equal(fields.location, 'Mont Kiara');
+        assert.equal(fields.existingObstacles, 'load-bearing column in living room');
+        assert.equal(fields.roomDimensions, '');
+    });
+
+    test('strips a ```json code fence the model was told not to add but might anyway', () => {
+        const fenced = '```json\n' + validJson + '\n```';
+        const fields = parseLeadExtractionJson(fenced);
+        assert.equal(fields.designStyle, 'Japandi');
+    });
+
+    test('returns null for malformed JSON rather than throwing', () => {
+        assert.equal(parseLeadExtractionJson('not json at all {{{'), null);
+    });
+
+    test('returns null for valid JSON that is not an object (e.g. an array)', () => {
+        assert.equal(parseLeadExtractionJson('["a", "b"]'), null);
+    });
+
+    test('missing keys default to empty string rather than undefined', () => {
+        const fields = parseLeadExtractionJson(JSON.stringify({ propertyType: 'Landed' }));
+        assert.equal(fields.propertyType, 'Landed');
+        assert.equal(fields.location, '');
+        assert.equal(fields.targetCompletionDate, '');
+    });
+
+    test('a non-string field value is coerced to empty string, not passed through', () => {
+        const fields = parseLeadExtractionJson(JSON.stringify({ numberOfRooms: 3 }));
+        assert.equal(fields.numberOfRooms, '');
+    });
+
+    test('null input returns null', () => {
+        assert.equal(parseLeadExtractionJson(null), null);
+        assert.equal(parseLeadExtractionJson(''), null);
     });
 });
 

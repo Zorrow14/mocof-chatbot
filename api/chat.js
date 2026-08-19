@@ -16,6 +16,7 @@ import { getWarrantyKnowledge } from '../knowledge/warranty.js';
 import { getBasicFurnitureKnowledge } from '../knowledge/basicfurniture.js';
 import { getCabinetryKnowledge, calculateCabinetPrice, SIDE_CABINET_MAX_HEIGHT_FT } from '../knowledge/cabinetry.js';
 import { getRelevantImages } from '../knowledge/productImages.js';
+import { appendRow, isSheetsConfigured } from '../lib/googleSheets.js';
 
 // Gemini's OpenAI-compatible endpoint -- same request/response shape as the
 // Groq endpoint this replaced, so the rest of this file barely had to change.
@@ -84,7 +85,13 @@ const MAX_KNOWLEDGE_MODULES = 3;
 // just the ones that happen to also contain the literal word "cheaper".
 const BASIC_FURNITURE_COMPANION_KEYS = ['wallbed', 'sofabed', 'table', 'kitchen', 'wardrobe'];
 
-function getRelevantKnowledge(message, history) {
+// Same selection logic getRelevantKnowledge() has always used, pulled out
+// into its own function so the SAME computation can also drive Phase 4
+// event logging ("which knowledge module fired") without running the
+// regex matching twice with two different implementations that could
+// drift apart. Returns the module objects (not yet rendered to text) plus
+// whether the no-match fallback path was used.
+function selectRelevantKnowledgeModules(message, history) {
     const recentHistoryText = Array.isArray(history)
         ? history.slice(-4).map(m => (m && m.content) ? m.content : '').join(' ')
         : '';
@@ -102,7 +109,9 @@ function getRelevantKnowledge(message, history) {
 
     // Fallback — if nothing matched, send a light default
     if (prioritized.length === 0) {
-        return getWallBedKnowledge() + getShowroomKnowledge();
+        const wallbedModule = KNOWLEDGE_MODULES.find(m => m.key === 'wallbed');
+        const showroomModule = KNOWLEDGE_MODULES.find(m => m.key === 'showroom');
+        return { modules: [wallbedModule, showroomModule].filter(Boolean), usedFallback: true };
     }
 
     let selected = prioritized.slice(0, MAX_KNOWLEDGE_MODULES);
@@ -117,7 +126,20 @@ function getRelevantKnowledge(message, history) {
         selected = [...selected, basicFurnitureModule];
     }
 
-    return selected.map(m => m.fn()).join('');
+    return { modules: selected, usedFallback: false };
+}
+
+function getRelevantKnowledge(message, history) {
+    const { modules } = selectRelevantKnowledgeModules(message, history);
+    return modules.map(m => m.fn()).join('');
+}
+
+// Phase 4 (event logging) needs just the KEYS, not the rendered knowledge
+// text — kept as a thin wrapper over selectRelevantKnowledgeModules() so
+// there is exactly one place the actual routing logic lives.
+function getRelevantKnowledgeModuleKeys(message, history) {
+    const { modules, usedFallback } = selectRelevantKnowledgeModules(message, history);
+    return { keys: modules.map(m => m.key), usedFallback };
 }
 
 // ── Build system prompt ───────────────────────────────────────
@@ -169,7 +191,7 @@ If customer mentions renovation, interior design, house design, condo renovation
 7. Room dimensions
 8. Existing obstacles
 9. Target completion date
-After all collected → summarise and say: "Thank you! Please reach out to our design consultant on WhatsApp at +60 12-568 4568 to schedule your free consultation and share these details."
+After all collected → summarise and say: "Thank you! Please reach out to our design consultant on WhatsApp at +60 12-475 4568 to schedule your free consultation and share these details."
 - If the customer only wants to buy a single product (e.g. "I just wanna buy a wall bed") rather than a full renovation, do NOT run this lead collection flow — just help them with the product directly.
 
 SURROUND CABINETRY ESTIMATES:
@@ -794,6 +816,154 @@ function stripImageDisclaimers(text) {
     return kept.join(' ').trim();
 }
 
+// =============================================================
+// Phase 4 — turn conversations into leads (Google Sheets logging)
+// Everything below is additive and defensive by construction: a failure
+// anywhere in this section (missing credentials, Sheets down, a malformed
+// extraction) is caught, logged via console.error, and NEVER changes what
+// gets sent back to the customer. See lib/googleSheets.js for the actual
+// Sheets API client and its own no-throw guarantee.
+// =============================================================
+
+// 4.2 — event logging (every turn). Fuzzy on purpose: "was a price quoted"
+// is a lightweight proxy (any RM figure appearing in the reply, reusing the
+// same extractAmounts() the guardrail already runs), not a precise
+// "customer received a final total" signal — good enough for a topic/
+// frequency dashboard without adding a second classification pass.
+async function logChatEvent({ message, history, reply, sessionId, turnNumber, apiFailed = false }) {
+    const { keys: knowledgeModuleKeys } = getRelevantKnowledgeModuleKeys(message, history);
+    const priceQuoted = !!reply && extractAmounts(reply).length > 0;
+    const guardrailBlocked = reply === SAFE_FALLBACK_REPLY;
+    const timestamp = new Date().toISOString();
+
+    // Short timeout (unlike the Leads append below) — this runs on EVERY
+    // chat turn, so it must not meaningfully add to every customer's
+    // perceived response time even if Sheets is having a slow moment.
+    await appendRow('Events', [
+        timestamp,
+        sessionId,
+        typeof turnNumber === 'number' ? turnNumber : '',
+        apiFailed ? 'API_FAILURE' : knowledgeModuleKeys.join(', '),
+        priceQuoted ? 'Y' : 'N',
+        guardrailBlocked ? 'Y' : 'N',
+        (message || '').slice(0, 200)
+    ], 1500);
+}
+
+// 4.1 — completed renovation leads. Fuzzy-matches on the renovation
+// WhatsApp number (see the RENOVATION LEAD COLLECTION prompt block above)
+// plus a completion-flavored word, rather than the exact sentence, since
+// the model may phrase its sign-off slightly differently turn to turn.
+const RENOVATION_LEAD_COMPLETE_WORD_PATTERN = /consult(ant|ation)/i;
+const RENOVATION_WHATSAPP_NUMBER_PATTERN = /\+?60[\s-]?12-?475[\s-]?4568/;
+
+function isRenovationLeadCompletionReply(reply) {
+    return !!reply
+        && RENOVATION_LEAD_COMPLETE_WORD_PATTERN.test(reply)
+        && RENOVATION_WHATSAPP_NUMBER_PATTERN.test(reply);
+}
+
+// Keys match the 9 steps in the RENOVATION LEAD COLLECTION prompt block /
+// knowledge/renovation.js, in the same order, so a Leads sheet row reads
+// left-to-right in the same order sales already thinks about these steps.
+const RENOVATION_LEAD_FIELDS = [
+    'propertyType', 'location', 'budgetRange', 'designStyle', 'numberOfRooms',
+    'floorPlanAvailable', 'roomDimensions', 'existingObstacles', 'targetCompletionDate'
+];
+
+function buildLeadExtractionPrompt(transcript) {
+    return `You are extracting structured lead information from a completed MOCOF (furniture & renovation company) customer service conversation, for the sales team's CRM. Below is the full transcript.
+
+Extract these fields, using the customer's own words — do NOT invent, infer, or guess anything the customer did not actually state. Use an empty string "" for anything not mentioned.
+- propertyType: condo, landed, apartment, serviced apartment, etc.
+- location: site address or area the customer gave
+- budgetRange: as stated (e.g. "RM30k-50k")
+- designStyle: design style preference
+- numberOfRooms: number of rooms / scope of the renovation
+- floorPlanAvailable: whether the customer has a floor plan (yes/no, as stated)
+- roomDimensions: any wall/room measurements given
+- existingObstacles: load-bearing walls, pillars, windows, low ceilings, old piping, etc.
+- targetCompletionDate: desired completion / move-in date
+
+Respond with ONLY a single JSON object with exactly these 9 keys and string values — no markdown code fences, no explanation, no extra text before or after it.
+
+TRANSCRIPT:
+${transcript}`;
+}
+
+// Defensive parsing — never trusts the extraction call blindly (same
+// "verify in code" principle used throughout this file): strips an
+// accidental code fence, validates the result is actually an object, and
+// coerces every field to a string (or '') rather than propagating whatever
+// shape the model happened to return into a spreadsheet row.
+function parseLeadExtractionJson(raw) {
+    if (!raw) return null;
+    const cleaned = raw.trim().replace(/^```(?:json)?\s*/i, '').replace(/```\s*$/i, '').trim();
+
+    let parsed;
+    try {
+        parsed = JSON.parse(cleaned);
+    } catch {
+        return null;
+    }
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return null;
+
+    const fields = {};
+    for (const key of RENOVATION_LEAD_FIELDS) {
+        fields[key] = typeof parsed[key] === 'string' ? parsed[key] : '';
+    }
+    return fields;
+}
+
+// Runs ONCE per completed renovation lead (gated by
+// isRenovationLeadCompletionReply above, called only from the handler) —
+// not on every turn, so the extra Gemini call this makes for structured
+// extraction is a rare, proportionate cost, not a per-message one.
+async function extractAndLogRenovationLead({ apiKeys, message, history, reply, sessionId }) {
+    if (!isSheetsConfigured()) return; // nothing to log to — skip the extraction call entirely
+
+    const transcriptLines = [
+        ...(Array.isArray(history) ? history : []).map(t => `${t && t.role === 'assistant' ? 'Bot' : 'Customer'}: ${t && t.content}`),
+        `Customer: ${message}`,
+        `Bot: ${reply}`
+    ];
+    const transcript = transcriptLines.join('\n');
+
+    let fields = null;
+    try {
+        const extractionRequestBody = {
+            model: GEMINI_MODEL,
+            messages: [{ role: 'user', content: buildLeadExtractionPrompt(transcript) }],
+            max_completion_tokens: 1500,
+            reasoning_effort: 'low',
+            stream: false
+        };
+        const raw = await callGeminiWithFallback(apiKeys, extractionRequestBody);
+        fields = parseLeadExtractionJson(raw);
+    } catch (err) {
+        console.error('Renovation lead field extraction call failed:', err.message || err);
+    }
+
+    const timestamp = new Date().toISOString();
+    if (fields) {
+        await appendRow('Leads', [
+            timestamp, sessionId,
+            fields.propertyType, fields.location, fields.budgetRange, fields.designStyle,
+            fields.numberOfRooms, fields.floorPlanAvailable, fields.roomDimensions,
+            fields.existingObstacles, fields.targetCompletionDate, ''
+        ], 8000);
+    } else {
+        // Extraction failed or returned unusable JSON — never lose the lead
+        // entirely: log the raw transcript in the notes column instead of 9
+        // empty structured ones, capped well under Sheets' own 50,000-char
+        // per-cell limit so one very long chat can't blow up a single cell.
+        await appendRow('Leads', [
+            timestamp, sessionId, '', '', '', '', '', '', '', '', '',
+            transcript.slice(0, 10000)
+        ], 8000);
+    }
+}
+
 // ── Test-only named exports ─────────────────────────────────────
 // These are the exact same function references used by the handler above —
 // exporting them changes no behavior, it just lets test/*.test.js exercise
@@ -801,6 +971,8 @@ function stripImageDisclaimers(text) {
 // handler (which would require mocking the Gemini API for every test).
 export {
     getRelevantKnowledge,
+    getRelevantKnowledgeModuleKeys,
+    buildSystemPrompt,
     extractCabinetryDimensions,
     extractSelectedWallBedModel,
     extractSelectedWallBedPricing,
@@ -813,6 +985,9 @@ export {
     convertToFeet,
     findHallucinatedPrices,
     isKnownAmount,
+    isRenovationLeadCompletionReply,
+    parseLeadExtractionJson,
+    buildLeadExtractionPrompt,
     getGeminiApiKeys,
     callGeminiWithFallback,
     MASTER_PRICE_LIST,
@@ -848,11 +1023,20 @@ export default async function handler(req, res) {
     }
 
     // ── Validate request body ─────────────────────────────────
-    const { message, history } = req.body;
+    const { message, history, sessionId: clientSessionId, leadAlreadyLogged, turnNumber } = req.body;
 
     if (!message || typeof message !== 'string' || !message.trim()) {
         return res.status(400).json({ error: 'message is required' });
     }
+
+    // Phase 4 logging correlation ID. The widget generates and sends one
+    // per page load (see public/index.html) so events/leads from the same
+    // visit can be grouped in the Events sheet — but a request without one
+    // (an older client, or a direct API call) still logs fine under a
+    // synthetic per-request ID, it just won't correlate with other turns.
+    const sessionId = (typeof clientSessionId === 'string' && clientSessionId.trim())
+        ? clientSessionId.trim()
+        : `server-${Date.now()}-${Math.random().toString(16).slice(2)}`;
 
     // ── Build & send Gemini request ───────────────────────────
     try {
@@ -936,7 +1120,35 @@ export default async function handler(req, res) {
 
             reply = stripImageDisclaimers(reply);
             const images = getRelevantImages(message, history);
-            return res.status(200).json({ success: true, message: reply, images });
+
+            // ── Phase 4 logging — never allowed to affect the reply above ──
+            // Both calls are individually try/caught (appendRow itself also
+            // never throws — see lib/googleSheets.js), so a Sheets outage or
+            // a bad credential can only ever show up in server logs, never
+            // in what the customer receives.
+            try {
+                await logChatEvent({ message, history, reply, sessionId, turnNumber });
+            } catch (err) {
+                console.error('Event logging failed (non-fatal):', err.message || err);
+            }
+
+            let leadJustLogged = false;
+            if (leadAlreadyLogged !== true && isRenovationLeadCompletionReply(reply)) {
+                try {
+                    await extractAndLogRenovationLead({ apiKeys, message, history, reply, sessionId });
+                    leadJustLogged = true;
+                } catch (err) {
+                    console.error('Renovation lead logging failed (non-fatal):', err.message || err);
+                }
+            }
+
+            return res.status(200).json({ success: true, message: reply, images, leadLogged: leadJustLogged });
+        }
+
+        try {
+            await logChatEvent({ message, history, reply: null, sessionId, turnNumber, apiFailed: true });
+        } catch (err) {
+            console.error('Event logging failed (non-fatal):', err.message || err);
         }
 
         const status = lastError?.status && lastError.status >= 400 ? lastError.status : 502;
