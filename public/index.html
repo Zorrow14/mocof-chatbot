@@ -351,14 +351,6 @@ var API_URL = 'https://mocof-chatbot.vercel.app/api/chat';
 var isOpen      = false;
 var isBusy      = false;
 var chatHistory = [];
-// One random ID per page load/tab — lets the backend correlate turns from
-// the same visit for analytics (Phase 4 event logging) and avoid logging
-// the same completed renovation lead twice within one visit. Not persisted
-// across page reloads or tabs, and carries no personal information.
-var sessionId = (window.crypto && crypto.randomUUID)
-  ? crypto.randomUUID()
-  : (Date.now().toString(36) + Math.random().toString(16).slice(2));
-var leadAlreadyLogged = false;
 
 /* ── DOM ─────────────────────────────────────────────── */
 var popup   = document.getElementById('chatPopup');
@@ -454,22 +446,12 @@ async function process(txt) {
 
   chatHistory.push({ role: 'user', content: txt });
   if (chatHistory.length > 40) chatHistory = chatHistory.slice(-40);
-  // Rough 1-based count of the customer's own messages so far this visit —
-  // sent purely for the Events log's drop-off analysis (Phase 4.3); not
-  // used for anything client-side.
-  var turnNumber = Math.floor(chatHistory.length / 2) + 1;
 
   try {
     var res = await fetch(API_URL, {
       method:  'POST',
       headers: { 'Content-Type': 'application/json' },
-      body:    JSON.stringify({
-        message: txt,
-        history: chatHistory,
-        sessionId: sessionId,
-        leadAlreadyLogged: leadAlreadyLogged,
-        turnNumber: turnNumber
-      })
+      body:    JSON.stringify({ message: txt, history: chatHistory })
     });
 
     if (!res.ok) console.error('HTTP error:', res.status, res.statusText);
@@ -480,7 +462,6 @@ async function process(txt) {
     if (data.success && data.message) {
       addBot(data.message, data.images);
       chatHistory.push({ role: 'assistant', content: data.message });
-      if (data.leadLogged) leadAlreadyLogged = true;
     } else {
       console.error('API error response:', JSON.stringify(data));
       addBot('I’m sorry, something went wrong. Please try again or visit one of our showrooms!');
