@@ -283,6 +283,27 @@
   .sbtn:disabled { opacity: 0.4; cursor: not-allowed; }
   .sbtn svg { width: 15px; height: 15px; fill: #ffffff; }
 
+  /* ── DEPOSIT CARD ── */
+  .deposit-card {
+    margin-top: 10px; padding: 12px; border-radius: 12px;
+    background: #ffffff; border: 1px solid #dddddd;
+  }
+  .deposit-line {
+    display: flex; justify-content: space-between; align-items: baseline;
+    font-size: 12px; color: #555555; margin-bottom: 8px;
+  }
+  .deposit-line strong { color: #000000; font-size: 13px; }
+  .deposit-btn {
+    width: 100%; background: #000000; color: #ffffff; border: none;
+    border-radius: 20px; padding: 10px 14px; font-size: 13px; font-weight: 600;
+    font-family: inherit; cursor: pointer; transition: background 0.15s, transform 0.1s;
+  }
+  .deposit-btn:hover:not(:disabled) { background: #333333; }
+  .deposit-btn:active:not(:disabled) { transform: scale(0.98); }
+  .deposit-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+  .deposit-status { font-size: 11px; color: #999999; margin-top: 6px; text-align: center; }
+  .deposit-status.err { color: #b00020; }
+
   /* ── MOBILE ── */
   @media (max-width: 480px) {
     .chat-popup { width: calc(100vw - 16px); height: calc(100vh - 110px); right: 8px; bottom: 86px; }
@@ -344,13 +365,23 @@
 'use strict';
 
 /* ── Config ──────────────────────────────────────────── */
-// API endpoint — automatically uses the same domain
-var API_URL = 'https://mocof-chatbot.vercel.app/api/chat';
+// API endpoints — automatically use the same domain
+var API_URL            = 'https://mocof-chatbot.vercel.app/api/chat';
+var CREATE_DEPOSIT_URL = 'https://mocof-chatbot.vercel.app/api/create-deposit';
 
 /* ── State ───────────────────────────────────────────── */
 var isOpen      = false;
 var isBusy      = false;
 var chatHistory = [];
+
+/* Deposit button state — each offered deposit stores the exact message +
+   history snapshot the server used to compute it, keyed by a counter. The
+   button click sends that same snapshot to /api/create-deposit, which
+   re-derives the estimate independently rather than trusting anything
+   stored here — this is just what lets the click "remember" which turn's
+   estimate it belongs to. */
+var depositContexts = {};
+var depositSeq      = 0;
 
 /* ── DOM ─────────────────────────────────────────────── */
 var popup   = document.getElementById('chatPopup');
@@ -447,11 +478,17 @@ async function process(txt) {
   chatHistory.push({ role: 'user', content: txt });
   if (chatHistory.length > 40) chatHistory = chatHistory.slice(-40);
 
+  // Snapshot exactly what's being sent to /api/chat -- if a deposit offer
+  // comes back, this is the same (message, history) pair api/chat.js used
+  // to compute it, and what gets replayed to /api/create-deposit later.
+  var reqMessage = txt;
+  var reqHistory = chatHistory.slice();
+
   try {
     var res = await fetch(API_URL, {
       method:  'POST',
       headers: { 'Content-Type': 'application/json' },
-      body:    JSON.stringify({ message: txt, history: chatHistory })
+      body:    JSON.stringify({ message: reqMessage, history: reqHistory })
     });
 
     if (!res.ok) console.error('HTTP error:', res.status, res.statusText);
@@ -460,7 +497,7 @@ async function process(txt) {
     hideTyping();
 
     if (data.success && data.message) {
-      addBot(data.message, data.images);
+      addBot(data.message, data.images, data.deposit, reqMessage, reqHistory);
       chatHistory.push({ role: 'assistant', content: data.message });
     } else {
       console.error('API error response:', JSON.stringify(data));
@@ -491,13 +528,13 @@ function addUser(txt) {
   scrollDown();
 }
 
-function addBot(txt, images) {
+function addBot(txt, images, deposit, reqMessage, reqHistory) {
   var row = document.createElement('div');
   row.className = 'mrow bot';
   row.innerHTML =
     '<div class="mav" aria-hidden="true">M</div>' +
     '<div class="mcol">' +
-      '<div class="bubble bot">' + fmt(txt) + imagesHtml(images) + '</div>' +
+      '<div class="bubble bot">' + fmt(txt) + imagesHtml(images) + depositHtml(deposit, reqMessage, reqHistory) + '</div>' +
       '<div class="mtime">Moco · ' + now() + '</div>' +
     '</div>';
   msgs.appendChild(row);
@@ -511,6 +548,71 @@ function imagesHtml(images) {
       esc(img.url) + '" alt="' + esc(img.label || '') + '" loading="lazy" ' +
       'onerror="this.parentElement.style.display=\'none\'"></div>';
   }).join('');
+}
+
+/* ── Deposit card ─────────────────────────────────────
+   Rendered only when the server itself decided a full grand total is being
+   shown this turn (data.deposit is non-null — see computeDepositOffer() in
+   api/chat.js). The AI never writes this button or a payment link itself;
+   it's a structured element the widget renders, the same pattern already
+   used for product photos via imagesHtml() above. */
+function fmtRM(n) {
+  return 'RM ' + Number(n).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
+function depositHtml(deposit, reqMessage, reqHistory) {
+  if (!deposit || typeof deposit.depositAmount !== 'number') return '';
+  var id = 'dep' + (++depositSeq);
+  depositContexts[id] = { message: reqMessage, history: reqHistory };
+  return (
+    '<div class="deposit-card">' +
+      '<div class="deposit-line"><span>Grand total</span><strong>' + esc(fmtRM(deposit.grandTotal)) + '</strong></div>' +
+      '<div class="deposit-line"><span>' + esc(String(deposit.depositPercent)) + '% deposit due now</span><strong>' + esc(fmtRM(deposit.depositAmount)) + '</strong></div>' +
+      '<button class="deposit-btn" id="' + id + '-btn" onclick="payDeposit(\'' + id + '\')">Pay ' + esc(String(deposit.depositPercent)) + '% Deposit — ' + esc(fmtRM(deposit.depositAmount)) + '</button>' +
+      '<div class="deposit-status" id="' + id + '-status"></div>' +
+    '</div>'
+  );
+}
+
+async function payDeposit(id) {
+  var ctx = depositContexts[id];
+  var btn = document.getElementById(id + '-btn');
+  var status = document.getElementById(id + '-status');
+  if (!ctx || !btn) return;
+
+  btn.disabled = true;
+  var originalLabel = btn.textContent;
+  btn.textContent = 'Starting checkout…';
+  if (status) { status.textContent = ''; status.classList.remove('err'); }
+
+  try {
+    var res = await fetch(CREATE_DEPOSIT_URL, {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify({ message: ctx.message, history: ctx.history })
+    });
+    var data = await res.json();
+
+    if (res.ok && data.success && data.url) {
+      // New tab, not a same-tab redirect — this is an embedded widget
+      // (often inside an iframe on the storefront), so navigating the
+      // widget itself away from the chat would strand the conversation.
+      window.open(data.url, '_blank', 'noopener');
+      btn.textContent = originalLabel;
+      btn.disabled = false;
+      if (status) status.textContent = 'Opened Stripe checkout in a new tab.';
+    } else {
+      throw new Error((data && data.error) || 'Could not start checkout');
+    }
+  } catch (err) {
+    console.error('Deposit checkout error:', err);
+    btn.textContent = originalLabel;
+    btn.disabled = false;
+    if (status) {
+      status.textContent = 'Something went wrong — please try again or contact us on WhatsApp.';
+      status.classList.add('err');
+    }
+  }
 }
 
 /* ── Typing indicator ────────────────────────────────── */

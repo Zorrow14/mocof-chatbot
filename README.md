@@ -14,6 +14,7 @@ Prerequisites:
 - Set the following environment variables in Vercel or your shell:
    - `GEMINI_API_KEY` (required)
    - `GEMINI_API_KEY_2` (optional — automatic fallback if the primary key hits a rate limit or a 5xx; see "Reliability" below)
+   - `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET` (optional — enables the "Pay Deposit" button; see "Deposit payments (Stripe)" below. The chatbot works fine without these, it just never offers a deposit)
 
 Install and run locally:
 
@@ -43,11 +44,14 @@ curl -X POST http://localhost:3000/api/chat \
 
 - `package.json`: project metadata and scripts (`dev` uses `vercel dev`, `test` and `test:consistency` for testing).
 - `vercel.json`: headers and rewrites used for local/production behavior.
-- `api/chat.js`: the serverless handler — knowledge routing, system prompt assembly, the Gemini call, live cabinetry price calculation, and the price-hallucination guardrail all live here.
+- `api/chat.js`: the serverless handler — knowledge routing, system prompt assembly, the Gemini call, live cabinetry price calculation, the price-hallucination guardrail, and the deposit-offer gate (`computeDepositOffer()`) all live here.
+- `api/create-deposit.js`: creates a Stripe Checkout Session for a 10% deposit once a full wall bed + cabinetry estimate exists — see "Deposit payments (Stripe)" below.
+- `api/stripe-webhook.js`: receives Stripe's `checkout.session.completed` event and confirms the deposit.
+- `lib/reference.js`: generates the `MQS-YYYYMMDD-XXXXXX` quote reference used to tie a Stripe payment back to its conversation.
 - `.github/workflows/ci.yml`: automated CI pipeline that syntax-checks all JS files and runs test suite on every push and pull request.
 - `knowledge/`: modules that export product/service knowledge used to build the system prompt (see below for the full list — two of them also export plain functions/data, not just prompt text).
 - `knowledge/productImages.js`: a separate image matcher that maps product names to real catalog photos and attaches them when relevant.
-- `public/index.html`: a minimal floating chat widget that calls `/api/chat`.
+- `public/index.html`: a minimal floating chat widget that calls `/api/chat` and `/api/create-deposit`.
 
 See the files in the repo for implementation details.
 
@@ -118,6 +122,31 @@ This bot has been through real hallucination incidents in testing (inventing non
 
 **3. Live surround-cabinetry pricing.** This is the one case where the model is allowed to state a price that isn't literally written in a knowledge file — it's a formula-based estimate computed from the customer's own wall measurements. `chat.js` extracts wall height / total wall width from the conversation via regex (`extractCabinetryDimensions`), derives the wall bed's width automatically from whichever model has been discussed (`extractSelectedWallBedModel` + `WALLBED_MODEL_WIDTHS_FT` — the customer is never asked for this directly, since they likely wouldn't know it), runs the real formula (`calculateCabinetPrice()` in `knowledge/cabinetry.js`), and injects the already-computed breakdown into the system prompt so the model relays exact figures instead of doing its own arithmetic. The same computation feeds the guardrail's allow-list, so the two can never disagree with each other. See the comments in `knowledge/cabinetry.js` for the formula itself and worked examples.
 
+## Deposit payments (Stripe)
+
+Once a customer has a full wall bed + cabinetry grand total (the same PRE-CALCULATED ESTIMATE described above), the widget can offer a "Pay 10% Deposit" button that opens a Stripe-hosted Checkout page. Full design rationale lives in `stripe-payment-gateway-proposal-v2.md`; this section covers what's actually implemented.
+
+**How it fits together:**
+1. `api/chat.js`'s handler computes `computeDepositOffer()` on every turn — it reuses the exact same price-intent gate and grand-total resolution as the text breakdown, so the button can never appear ahead of (or instead of) the price itself. This is returned to the widget as `deposit` alongside the normal `message`/`images` fields — never written by the AI.
+2. The widget renders a real `<button>` (not a link the model generated — see the proposal's Section 5 on why) showing the grand total and the 10% deposit amount.
+3. Clicking it POSTs the same `(message, history)` pair to `POST /api/create-deposit`, which **independently re-derives the grand total from the conversation** rather than trusting anything the browser sends — the client only ever supplies the raw conversation, never a dollar amount.
+4. `create-deposit.js` creates a Stripe Checkout Session (card + FPX, MYR) for 10% of that re-derived total, tagged with a generated quote reference (`lib/reference.js`) in `metadata`, and returns the checkout URL. The widget opens it in a new tab (the chat itself is often embedded in an iframe, so a same-tab redirect would strand the conversation).
+5. Stripe calls `POST /api/stripe-webhook` on `checkout.session.completed` (the reliable fulfillment signal — a customer can close the tab before the success-page redirect fires). The handler verifies the signature, then logs the confirmed deposit (quote ref, model, amounts, payer email from Stripe's own checkout).
+
+**Setup:**
+1. Create/activate a Stripe account for the MOCOF entity and complete Malaysian business verification.
+2. In the Stripe Dashboard, under Payment methods, enable **FPX** (off by default).
+3. Grab the **test-mode** secret key first (`sk_test_...`) — don't use live keys until a few test-mode deposits have gone through cleanly.
+4. Set env vars in Vercel: `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET` (from the Dashboard once the endpoint below is registered), and optionally `SITE_URL` (defaults to the production widget URL if unset).
+5. In the Stripe Dashboard → Developers → Webhooks, add an endpoint pointing at `https://<your-deployment>/api/stripe-webhook`, subscribed to `checkout.session.completed`. Copy the signing secret into `STRIPE_WEBHOOK_SECRET`.
+6. For local testing, use the Stripe CLI (`stripe listen --forward-to localhost:3000/api/stripe-webhook`) rather than the real Dashboard endpoint.
+
+**Deliberately not yet wired up:**
+- **Company notification on payment.** `stripe-webhook.js` logs every confirmed deposit but doesn't send an email — MOCOF chose Resend for a general chat-alerting feature earlier in this project, then asked to remove that feature entirely, so re-adding email specifically for payment notifications is a channel/inbox decision worth confirming rather than a default this file should make quietly. Set `EMAIL_API_KEY` + `COMPANY_NOTIFY_EMAIL` and implement the send in `notifyCompany()` once that's decided.
+- **Lead-sheet logging.** The webhook has a marked spot to log a paid deposit as a "won" lead once Phase 4 (Google Sheets) exists again on `main` — it was built Aug 19 and reverted Aug 20.
+- **Customer email/phone collection in the widget.** None exists today. Stripe Checkout collects an email itself as part of its hosted flow, so this was left as-is rather than adding a new question to the chat just to duplicate it — revisit if you want the email captured even when a customer abandons checkout before paying.
+- **Refund policy wording, and where `cancel_url` should send the customer** — business decisions called out as open in the proposal, not code changes.
+
 ## Response & persona rules (enforced in the system prompt)
 
 - Persona: Warm, professional, concise. Ask clarifying questions when needed, one at a time.
@@ -153,6 +182,9 @@ This bot has been through real hallucination incidents in testing (inventing non
 - `502` / Gemini API errors: check your API key is valid, rate limits, and the `details` field in the error JSON returned by the endpoint.
 - Bot gives a generic "confirm on WhatsApp" reply instead of an expected price: check server logs for `Blocked reply containing unrecognized price(s)` — see "Pricing accuracy & guardrails" above.
 - Cabinetry estimate not appearing: it requires a wall height AND total wall width AND an established wall bed model somewhere in the recent conversation — if any of those is missing, the bot will keep asking rather than guessing. A wall height under 7ft is a separate, deliberate case (surround cabinetry can't physically fit) — the bot should say so explicitly rather than asking for more measurements.
+- "Pay Deposit" button not appearing: same requirements as the cabinetry estimate above (it uses the identical gate), so if the text breakdown isn't showing, the button won't either.
+- `create-deposit` returns "payments are not yet configured": `STRIPE_SECRET_KEY` isn't set in the environment.
+- Stripe webhook returns 400 "signature verification failed": either `STRIPE_WEBHOOK_SECRET` doesn't match the endpoint's actual signing secret in the Stripe Dashboard, or the request body was parsed/re-serialized before reaching the handler — check that `export const config = { api: { bodyParser: false } }` in `stripe-webhook.js` hasn't been removed.
 
 ## Known limitations
 

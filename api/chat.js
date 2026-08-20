@@ -758,6 +758,34 @@ function buildCabinetryEstimateBlock(message, history) {
     return lines.join('\n');
 }
 
+// ── Deposit offer (Stripe integration) ──────────────────────
+// 10% reservation deposit, applied toward the final invoice once the site
+// survey confirms the real price — decided in
+// stripe-payment-gateway-proposal-v2.md Section 1.
+const DEPOSIT_PERCENT = 10;
+
+// Mirrors buildCabinetryEstimateBlock()'s own gating EXACTLY (same price-
+// intent check, same "must be a full non-blocked grandTotal" requirement) —
+// this is deliberate, not duplicated by accident: the "Pay Deposit" button
+// must never be offered ahead of, or instead of, the price text itself. This
+// only decides whether to OFFER a deposit button in the chat response; it
+// never talks to Stripe. api/create-deposit.js re-derives this same estimate
+// independently from the conversation when the button is actually clicked,
+// so the amount charged is never trusted from what this function returned to
+// the client earlier.
+function computeDepositOffer(message, history) {
+    if (!hasCabinetryPriceIntent(message, history)) return null;
+    const est = getCabinetryEstimateFromContext(message, history);
+    if (!est || est.blocked || est.grandTotal === null || typeof est.grandTotal === 'undefined') return null;
+
+    return {
+        wallBedModelLabel: est.wallBedModelLabel,
+        grandTotal: est.grandTotal,
+        depositPercent: DEPOSIT_PERCENT,
+        depositAmount: round2(est.grandTotal * DEPOSIT_PERCENT / 100)
+    };
+}
+
 // Returns an array of suspicious RM figures found in the reply that don't exist
 // anywhere in the real catalog AND weren't stated by the customer themselves
 // (so echoing back a customer's own stated budget is never treated as hallucination),
@@ -819,7 +847,9 @@ export {
     MASTER_PRICE_LIST,
     KNOWLEDGE_MODULES,
     BASIC_FURNITURE_COMPANION_KEYS,
-    MURANO_MIN_CEILING_FT
+    MURANO_MIN_CEILING_FT,
+    computeDepositOffer,
+    DEPOSIT_PERCENT
 };
 
 // ── Main handler ──────────────────────────────────────────────
@@ -937,7 +967,13 @@ export default async function handler(req, res) {
 
             reply = stripImageDisclaimers(reply);
             const images = getRelevantImages(message, history);
-            return res.status(200).json({ success: true, message: reply, images });
+            // null unless a full wall bed + cabinetry grand total is actually
+            // being shown this turn — see computeDepositOffer() above. The
+            // widget renders this as a real button; the AI never generates
+            // it or the payment link itself (see Section 5 of the Stripe
+            // proposal — the model is barred from writing links at all).
+            const deposit = computeDepositOffer(message, history);
+            return res.status(200).json({ success: true, message: reply, images, deposit });
         }
 
         const status = lastError?.status && lastError.status >= 400 ? lastError.status : 502;
