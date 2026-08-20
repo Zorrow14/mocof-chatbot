@@ -18,7 +18,8 @@
     }
   ],
   "rewrites": [
-    { "source": "/",       "destination": "/public/index.html" },
-    { "source": "/widget", "destination": "/public/index.html" }
+    { "source": "/",                "destination": "/public/index.html" },
+    { "source": "/widget",          "destination": "/public/index.html" },
+    { "source": "/deposit-success", "destination": "/public/deposit-success.html" }
   ]
 }

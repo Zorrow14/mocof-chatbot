@@ -31,8 +31,12 @@ import {
     MASTER_PRICE_LIST,
     KNOWLEDGE_MODULES,
     BASIC_FURNITURE_COMPANION_KEYS,
-    MURANO_MIN_CEILING_FT
+    MURANO_MIN_CEILING_FT,
+    computeDepositOffer,
+    DEPOSIT_PERCENT
 } from '../api/chat.js';
+
+import { generateQuoteRef, QUOTE_REF_PATTERN } from '../lib/reference.js';
 
 import { calculateCabinetPrice, getCabinetryKnowledge, SIDE_CABINET_MAX_HEIGHT_FT } from '../knowledge/cabinetry.js';
 import { getWallBedKnowledge, WALLBED_MODEL_WIDTHS_FT, WALLBED_MODEL_PRICING } from '../knowledge/wallbeds.js';
@@ -295,6 +299,78 @@ describe('cabinetry context extraction -> pricing -> price guardrail chain', () 
         const wrongReply = 'GRAND TOTAL (wall bed + cabinetry): RM 38,273.11';
         const bad = findHallucinatedPrices(wrongReply, message, allowed);
         assert.deepEqual(bad, ['38273.11']);
+    });
+
+    // ── Deposit offer (Stripe integration) — reuses this exact fixture so
+    // the deposit amount is checked against the SAME verified grand total
+    // as the tests above, rather than a second hand-computed number that
+    // could quietly drift from it.
+    test('computeDepositOffer returns the full offer once a grand total is actually being shown', () => {
+        const offer = computeDepositOffer(message, history);
+        assert.ok(offer, 'expected a non-null deposit offer');
+        assert.equal(offer.wallBedModelLabel, 'Murano Queen Sofa');
+        assert.equal(offer.grandTotal, 38300.11);
+        assert.equal(offer.depositPercent, DEPOSIT_PERCENT);
+        assert.equal(offer.depositAmount, 3830.01); // 10% of 38300.11, rounded
+    });
+});
+
+describe('computeDepositOffer gating (must never precede or bypass the price text itself)', () => {
+    test('returns null when every measurement is known but price was never actually asked', () => {
+        // Same shape as the worked-example-4 fixture above, MINUS any price
+        // word anywhere in the conversation — mirrors buildCabinetryEstimateBlock()'s
+        // own price-intent gate, which the text breakdown is ALSO subject to.
+        const history = [
+            { role: 'user', content: 'I want a Murano Queen with side cabinets around it.' },
+            { role: 'assistant', content: 'Sure! What is the total height of the wall, in feet?' },
+            { role: 'user', content: '11ft' },
+            { role: 'assistant', content: 'Got it. What is the total width of the wall, in feet?' }
+        ];
+        assert.equal(hasCabinetryPriceIntent('10ft', history), false);
+        assert.equal(computeDepositOffer('10ft', history), null);
+    });
+
+    test('returns null for a blocked (wall-too-short) estimate — there is nothing to deposit against', () => {
+        const history = [
+            { role: 'user', content: 'I have a Murano Single, can I get side cabinets around it? How much would it cost?' },
+            { role: 'assistant', content: 'Sure! What is the total height of the wall, in feet?' }
+        ];
+        assert.equal(computeDepositOffer('6ft', history), null);
+    });
+
+    test('returns null while a measurement is still outstanding, even with clear price intent', () => {
+        const history = [
+            { role: 'user', content: 'I want a Murano Queen with cabinets, how much in total?' },
+            { role: 'assistant', content: 'Sure! What is the total height of the wall, in feet?' }
+        ];
+        // Height given, total wall width never collected — matches the
+        // "keep asking" case getCabinetryEstimateFromContext already covers.
+        assert.equal(computeDepositOffer('11ft', history), null);
+    });
+});
+
+describe('lib/reference.js — quote reference generation', () => {
+    test('generateQuoteRef() matches the documented MQS-YYYYMMDD-XXXXXX format', () => {
+        const ref = generateQuoteRef();
+        assert.match(ref, QUOTE_REF_PATTERN);
+    });
+
+    test('embeds the given date (UTC) rather than always using "now"', () => {
+        const ref = generateQuoteRef(new Date('2026-08-20T14:14:47Z'));
+        assert.match(ref, /^MQS-20260820-/);
+    });
+
+    test('two calls produce different references', () => {
+        const a = generateQuoteRef();
+        const b = generateQuoteRef();
+        assert.notEqual(a, b);
+    });
+
+    test('never uses visually ambiguous characters (0/O, 1/I) in the suffix', () => {
+        for (let i = 0; i < 20; i++) {
+            const suffix = generateQuoteRef().split('-')[2];
+            assert.doesNotMatch(suffix, /[01OI]/);
+        }
     });
 });
 

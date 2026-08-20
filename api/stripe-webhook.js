@@ -30,24 +30,66 @@ function readRawBody(req) {
     });
 }
 
-// Deliberately NOT wired to an email provider by default. MOCOF chose Resend
-// for a general chat-alerting feature earlier in this project, then asked to
-// remove that feature entirely — wiring email back in here, for a different
-// purpose (payment notifications), is a real decision (which channel, which
-// inbox) worth confirming rather than a default this file should quietly
-// make on its own. Every confirmed deposit is logged either way (see below,
-// plus Vercel's own function logs), so nothing is silently lost while that's
-// pending — only the "someone gets pinged immediately" part is a no-op until
-// EMAIL_API_KEY + COMPANY_NOTIFY_EMAIL are both set AND the send call below
-// is actually implemented.
+// Uses Resend's plain HTTP API (no SDK dependency to add/lock) via fetch,
+// which Node 20's runtime supports natively. Stays fully opt-in: if
+// EMAIL_API_KEY + COMPANY_NOTIFY_EMAIL aren't both set, this still just
+// logs, exactly as before — so nothing sends until MOCOF deliberately
+// configures it. Every confirmed deposit is logged either way (see below,
+// plus Vercel's own function logs), so nothing is silently lost if the
+// email send itself fails.
 async function notifyCompany(details) {
     if (!process.env.EMAIL_API_KEY || !process.env.COMPANY_NOTIFY_EMAIL) {
         console.log('Deposit confirmed (no notification channel configured):', JSON.stringify(details));
         return;
     }
-    // TODO: wire in Resend/SendGrid here once the channel decision is
-    // confirmed — see the comment above for why this isn't done by default.
-    console.log('Deposit confirmed — notification channel configured but send not yet implemented:', JSON.stringify(details));
+
+    // Resend requires the "from" address to be on a domain verified in your
+    // Resend dashboard. Set EMAIL_FROM_ADDRESS once that's done; this
+    // fallback only works for accounts still on Resend's unverified test
+    // sender and will be rejected otherwise.
+    const fromAddress = process.env.EMAIL_FROM_ADDRESS || 'MOCOF Chatbot <onboarding@resend.dev>';
+    const subject = `New deposit paid — ${details.quoteRef || 'no ref'} (RM ${details.depositAmountPaid || '?'})`;
+    const body = [
+        `A ${details.depositPercent || '?'}% deposit has been paid.`,
+        '',
+        `Quote ref: ${details.quoteRef || '(none)'}`,
+        `Wall bed model: ${details.wallBedModel || '(none)'}`,
+        `Grand total: RM ${details.grandTotal || '?'}`,
+        `Deposit paid: RM ${details.depositAmountPaid || '?'}`,
+        `Customer email: ${details.customerEmail || '(not provided)'}`,
+        `Stripe session: ${details.stripeSessionId || '(none)'}`
+    ].join('\n');
+
+    // Never let a notification failure reach the caller — the webhook
+    // handler awaits this outside its own try/catch, so an uncaught
+    // rejection here would turn into a 500 and make Stripe retry an event
+    // that was actually processed successfully. The payment is already
+    // durably recorded by Stripe regardless of whether this email goes out.
+    try {
+        const res = await fetch('https://api.resend.com/emails', {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${process.env.EMAIL_API_KEY}`,
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                from: fromAddress,
+                to: [process.env.COMPANY_NOTIFY_EMAIL],
+                subject,
+                text: body
+            })
+        });
+
+        if (!res.ok) {
+            const errText = await res.text().catch(() => '');
+            console.error('notifyCompany: Resend API returned an error:', res.status, errText);
+            return;
+        }
+
+        console.log('Deposit confirmed — notification email sent:', JSON.stringify(details));
+    } catch (err) {
+        console.error('notifyCompany: failed to send notification email:', err.message || err);
+    }
 }
 
 export default async function handler(req, res) {

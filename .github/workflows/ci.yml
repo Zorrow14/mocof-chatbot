@@ -43,3 +43,19 @@ jobs:
 
       - name: Run test suite
         run: npm test
+
+      # node --check above only parses syntax — it never resolves imports,
+      # and the test suite only imports the files it happens to test. A
+      # package used in api/*.js but missing from package.json (e.g. added
+      # in code but never `npm install`ed) can pass both of those cleanly
+      # and still crash at runtime the moment Vercel invokes the function.
+      # This step actually imports every serverless function entrypoint to
+      # catch exactly that class of bug before it reaches production.
+      - name: Verify serverless functions import cleanly
+        run: |
+          set -e
+          for f in api/*.js; do
+            echo "Importing $f..."
+            node -e "import('./$f').catch(e => { console.error(e.message); process.exit(1); })"
+          done
+          echo "All api/*.js modules imported cleanly."
