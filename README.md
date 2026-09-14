@@ -17,7 +17,7 @@ The chatbot uses Gemini through Google's OpenAI-compatible chat completions endp
 
 ## Prerequisites
 
-- Node.js 20.x
+- Node.js 24.x — matches the `engines` field in `package.json`, which is what Vercel reads
 - Vercel CLI for local development, or deployment through the Vercel dashboard
 - Environment variables in Vercel or your shell
 
@@ -63,7 +63,7 @@ curl -X POST http://localhost:3000/api/chat \
 ## Project structure
 
 - `api/chat.js` — main bot endpoint, prompt assembly, knowledge routing, pricing calculations, product-image matching, and deposit-offer detection
-- `api/create-deposit.js` — creates a Stripe Checkout session for a valid 10% deposit
+- `api/create-deposit.js` — creates a Stripe Checkout session for a validated deposit (10% of the total, or an allowed fixed amount)
 - `api/stripe-webhook.js` — validates Stripe webhook signatures and records confirmed deposits
 - `knowledge/` — product and service knowledge modules used to guide responses
 - `knowledge/productImages.js` — maps product names to real catalog photos
@@ -73,6 +73,7 @@ curl -X POST http://localhost:3000/api/chat \
 - `lib/sheetsLogger.js` — logs confirmed deposits to Google Sheets when configured
 - `GOOGLE_SHEETS_CREDENTIALS.md` — Sheet column list, and how the Google service-account credentials are provisioned
 - `CLAUDE.md` — architecture notes and the invariants to preserve when changing pricing, deposits, or the Sheet row
+- `FUTURE_FB_WHATSAPP_INTEGRATION.md` — planning notes for a possible future Facebook Messenger / WhatsApp channel via Zernio; nothing in the code uses it yet
 - `public/index.html` — chat widget UI
 - `public/deposit-success.html` — success page shown after successful Stripe checkout
 - `test/consistency.test.js` — regression checks for critical pricing and gating logic
@@ -86,7 +87,7 @@ curl -X POST http://localhost:3000/api/chat \
 3. It builds a system prompt with MOCOF persona rules, pricing guidance, showroom rules, and contextual product details.
 4. It sends the request to Gemini via the OpenAI-compatible chat completions endpoint.
 5. The response is checked against internal pricing data and live cabinetry calculations before being returned to the customer.
-6. If a deposit is payable — either a full wall-bed + cabinetry estimate, or a wall bed on its own — the widget may also render a deposit button and trigger the Stripe flow.
+6. If a deposit is payable — either a full wall-bed + cabinetry estimate, or a wall bed on its own — the widget may also render a deposit card and trigger the Stripe flow.
 
 ## Key product features
 
@@ -124,20 +125,31 @@ The app then injects the computed breakdown into the system prompt so the model 
 
 All three inputs are required. Until every one is known, the prompt instead carries an instruction naming the specific item(s) still missing and telling the model to keep asking for them one at a time — including re-asking when a reply was blank, unparseable, or out of range. Without that, an unusable answer would silently end the measurement flow, and neither the estimate nor the deposit offer would ever appear.
 
+A customer doesn't have to use price words to get the estimate. If the bot offers one ("Would you like an estimate for adding surround cabinetry?") and the customer just says "yes", that counts as asking. Otherwise the pre-calculated figures would be withheld, the model would improvise its own, and the guardrail would replace the whole reply with the WhatsApp fallback.
+
+Re-asking has a limit. Once the bot has asked for the same measurement twice and still can't read a usable number, the keep-asking instruction is replaced by one telling it to stop and offer a colleague on WhatsApp instead — measuring a wall over chat is fiddly, and some customers can't do it. It still never quotes a cabinetry price without the measurements.
+
+### Human handoff
+
+Beyond the price guardrail's fallback, the system prompt tells the bot to offer a colleague on WhatsApp — **+60 12-568 4568** for products, **+60 12-475 4568** for renovation — when the customer seems confused or frustrated, when it has failed to help with the same thing across a couple of turns, when a request is outside the catalog or it isn't confident in its answer, or when the customer asks for a person. The handoff is framed as help arriving rather than a dead end, and the bot keeps answering what it can alongside it. This is the one exception to the rule that otherwise keeps the WhatsApp number out of non-renovation replies.
+
 ### Deposit flow
 
 The widget can show a deposit card in two situations:
 
-- **Wall bed + cabinetry** — the combined grand total, once a full estimate has been quoted.
-- **Wall bed only** — the model's sale price alone, for a customer who never raised cabinetry.
+- **Wall bed + cabinetry** — the combined grand total, once a full estimate has been worked out and its price revealed.
+- **Wall bed only** — the model's sale price alone, once the customer says they want that specific bed.
 
-Both are decided by a single function, `getDepositBasisFromContext()` in `api/chat.js`. The chat response's button and the actual Stripe charge both read from it and nothing else, so the quoted and charged amounts cannot diverge.
+Both are decided by a single function, `getDepositBasisFromContext()` in `api/chat.js`. The chat response's card and the actual Stripe charge both read from it and nothing else, so the quoted and charged amounts cannot diverge.
 
-The gating is deliberately conservative:
+The gating is deliberately conservative — the card should never appear ahead of a price, and never in reply to a question that was only asking:
 
-- An explicit price question is required — the button never appears unprompted.
-- Once cabinetry is mentioned by *either* side of the conversation, the wall-bed-only offer is suppressed until the combined estimate is complete. Otherwise a customer mid-quote would be offered payment for less than the total being assembled.
-- No deposit is offered for a Murano below its 2.4 m ceiling minimum. The app never takes money for a bed that cannot be installed.
+- **Cabinetry deposits** need a complete estimate plus a revealed price: either the customer asked for it ("how much", "what's the total", or "yes" to the bot's offer of an estimate), or the grand total was already shown in an earlier reply.
+- **Wall-bed-only deposits** need purchase intent, not just a priced model. "I want the Murano Queen", "I'll take it", "how do I reserve?", or "yes" to the bot's own reservation invite all count. "Is there a Murano Single?" and "How much is it?" do not — the bot answers the question and doesn't mention deposits.
+- **No downgrading mid-quote.** Once cabinetry comes up on *either* side of the conversation, the cheaper bed-only deposit is withheld until the combined estimate is complete. Declining cabinetry ("no cabinets", "just the bed") re-opens the bed-only option; asking for cabinets again closes it.
+- **No deposit is offered for a Murano below its 2.4 m ceiling minimum.** The app never takes money for a bed that cannot be installed.
+
+The bot's wording follows the same rules: the prompt only lets it invite a reservation once a specific model is settled and the customer wants it, and bars it from writing payment links or stating the deposit amount itself.
 
 The flow is:
 
@@ -230,13 +242,16 @@ The repository includes automated checks:
 
 The suite is offline and needs no credentials: the Google Sheets tests stub `globalThis.fetch` and generate a throwaway RSA key pair, and nothing calls Gemini or Stripe. Most cases exist to catch *drift* rather than to prove a function works — a price hardcoded in the prompt disagreeing with the pricing table, a worked example in a comment disagreeing with the formula, or the Sheet row disagreeing with the range it is written into. A failure there usually means two things that must agree no longer do.
 
+`api/create-deposit.js` and `api/stripe-webhook.js` import `stripe`, so the suite doesn't run them. Instead it reads their source to pin the wiring that matters: the charge comes only from `buildDepositCharge()` with no amount read off the request, and every metadata field written at charge time is read back by the webhook. The deposit logic itself lives in `api/chat.js`, where it is tested directly.
+
 ## Troubleshooting
 
 - `500` or "API key missing": ensure `GEMINI_API_KEY` is set.
 - Every chat request fails after adding a knowledge module: check the import path against the real filename. A typo there breaks `api/chat.js` at load time, which takes `/api/create-deposit` down with it since it imports `chat.js`. `npm test` still passes — the import check (`node -e "import('./api/chat.js')"`, which CI runs over every entrypoint) is what catches it.
 - `502` or Gemini API errors: verify the key is valid and the endpoint is reachable.
 - Price response seems blocked unexpectedly: check logs for the guardrail message and inspect whether the amount was recognized.
-- Deposit button does not appear: a price question must have been asked, and a specific wall bed model established. If cabinetry has been mentioned, the button waits for the full combined estimate rather than offering the bed alone. A Murano below the 2.4 m ceiling minimum is never offered a deposit.
+- Deposit card does not appear: for a wall bed on its own, the customer must have named a specific model and said they want it — an availability or price question alone is not enough. For cabinetry, the estimate must be complete and its price revealed; while cabinetry is still being discussed, the bed-only card is held back unless the customer declines cabinetry. A Murano below the 2.4 m ceiling minimum is never offered a deposit. To see which rule stopped it, search the `chat` function logs for `[deposit] suppressed:`. Treat `[deposit] WITHHELD despite buy intent:` (logged as an error) as the likely-bug case — the customer named a model and said they want it, and still got no card.
+- Checkout fails with "That deposit option is not available for this order": the requested option isn't in the server's list for this order's grand total — usually a fixed amount at or above the total, or a request the widget didn't send. `create-deposit` logs `[deposit] rejected deposit option:` with the reason.
 - Deposit confirmation does not appear in the chat after paying: expected when the original tab was closed, or if the browser severed `window.opener` on the way through Stripe. The success page still confirms the payment, and the webhook still records it — nothing is lost.
 - Sheet columns look shifted: the row must line up with the `A:L` range. A row wider than its range is truncated silently by the Sheets API, so check both together after adding a column.
 - Stripe webhook returns 400: verify `STRIPE_WEBHOOK_SECRET` matches the endpoint and the body parser is disabled in `api/stripe-webhook.js`.
