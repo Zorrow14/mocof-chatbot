@@ -150,7 +150,15 @@ export default async function handler(req, res) {
             totalWallWidthFt: meta.total_wall_width_ft || null,
             wallBedModel: meta.wall_bed_model || null,
             grandTotal: meta.grand_total || null,
+            // Blank for a fixed-amount deposit — no percentage was applied.
             depositPercent: meta.deposit_percent || null,
+            // Which deposit option the customer chose on the card, as resolved
+            // and validated by api/create-deposit.js at charge time. Null on
+            // sessions created before deposit options existed — logged as a
+            // blank cell rather than guessed at, like `cabinets` above.
+            depositOption: meta.deposit_option || null,
+            depositOptionKind: meta.deposit_option_kind || null,
+            depositOptionLabel: meta.deposit_option_label || null,
             depositAmountPaid: typeof session.amount_total === 'number'
                 ? (session.amount_total / 100).toFixed(2)
                 : null,

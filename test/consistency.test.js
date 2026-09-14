@@ -14,6 +14,7 @@
 
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 
 import {
     getRelevantKnowledge,
@@ -33,6 +34,11 @@ import {
     BASIC_FURNITURE_COMPANION_KEYS,
     MURANO_MIN_CEILING_FT,
     computeDepositOffer,
+    ALLOWED_FIXED_DEPOSITS,
+    DEPOSIT_OPTION_PERCENT,
+    getDepositOptions,
+    resolveDepositChoice,
+    buildDepositCharge,
     getDepositBasisFromContext,
     hasCabinetryIntent,
     hasPurchaseIntent,
@@ -815,7 +821,8 @@ describe('lib/sheetsLogger.js — deposit logging', () => {
         customerName: 'Aisyah Binti Rahman',
         customerPhone: '+60123456789',
         stripeSessionId: 'cs_test_123',
-        cabinets: 'Yes'
+        cabinets: 'Yes',
+        depositOptionLabel: 'Fixed RM 2,500.00'
     };
 
     function sheetsCall(calls) {
@@ -945,7 +952,7 @@ describe('lib/sheetsLogger.js — deposit logging', () => {
     });
 
     // ── logDepositToSheet: the appended row ──
-    test('appends the eleven deposit fields in the documented column order', async () => {
+    test('appends the twelve deposit fields in the documented column order', async () => {
         await withEnv(CONFIGURED, async () => {
             const calls = stubFetch();
             await logDepositToSheet(DETAILS);
@@ -954,7 +961,7 @@ describe('lib/sheetsLogger.js — deposit logging', () => {
             assert.equal(append.options.headers.Authorization, 'Bearer test-token-xyz');
 
             const [row] = JSON.parse(append.options.body).values;
-            assert.equal(row.length, 11);
+            assert.equal(row.length, 12);
             assert.ok(!isNaN(Date.parse(row[0])), 'column A must be an ISO timestamp');
             // The three contact fields sit together (G, H, I) — Stripe Session
             // ID and Cabinets follow them, NOT the other way round.
@@ -968,7 +975,8 @@ describe('lib/sheetsLogger.js — deposit logging', () => {
                 DETAILS.customerName,
                 DETAILS.customerPhone,
                 DETAILS.stripeSessionId,
-                DETAILS.cabinets
+                DETAILS.cabinets,
+                DETAILS.depositOptionLabel
             ]);
         });
     });
@@ -999,11 +1007,12 @@ describe('lib/sheetsLogger.js — deposit logging', () => {
             await logDepositToSheet({ stripeSessionId: 'cs_test_only' });
 
             const [row] = JSON.parse(sheetsCall(calls).options.body).values;
-            assert.equal(row.length, 11);
+            assert.equal(row.length, 12);
             assert.deepEqual(row.slice(1, 9), ['', '', '', '', '', '', '', ''],
                 'every unset field, contact details included, must be an empty string');
             assert.equal(row[9], 'cs_test_only');
             assert.equal(row[10], '', 'a session with no cabinets metadata logs an empty cell, not "undefined"');
+            assert.equal(row[11], '', 'a session with no deposit option metadata logs an empty cell, not "undefined"');
         });
     });
 
@@ -1011,14 +1020,14 @@ describe('lib/sheetsLogger.js — deposit logging', () => {
         await withEnv(CONFIGURED, async () => {
             const calls = stubFetch();
             await logDepositToSheet(DETAILS);
-            assert.match(decodeURIComponent(sheetsCall(calls).url), /Deposits!A:K/);
+            assert.match(decodeURIComponent(sheetsCall(calls).url), /Deposits!A:L/);
         });
 
         await withEnv({ ...CONFIGURED, GOOGLE_SHEETS_TAB_NAME: 'Live Deposits' }, async () => {
             const calls = stubFetch();
             await logDepositToSheet(DETAILS);
             const url = sheetsCall(calls).url;
-            assert.match(decodeURIComponent(url), /Live Deposits!A:K/);
+            assert.match(decodeURIComponent(url), /Live Deposits!A:L/);
             assert.doesNotMatch(url, /Live Deposits/, 'a tab name with a space must be URL-encoded in the request');
         });
     });
@@ -1284,7 +1293,7 @@ describe('deposit "Cabinets" Yes/No mapping', () => {
         // in Stripe metadata, the webhook reads it back, sheetsLogger writes it
         // to column I.
         const written = await captureSheetRow({ stripeSessionId: 'cs_x', cabinets: 'No' });
-        assert.equal(written.length, 11);
+        assert.equal(written.length, 12);
         assert.equal(written[10], 'No');
     });
 });
@@ -1305,7 +1314,7 @@ describe('customer contact columns (name / email / phone)', () => {
             stripeSessionId: 'cs_contact',
             cabinets: 'Yes'
         });
-        assert.equal(row.length, 11);
+        assert.equal(row.length, 12);
         assert.deepEqual(row.slice(6, 9), ['buyer@example.com', 'Aisyah Binti Rahman', '+60123456789']);
 
         // Everything after the contact block must have shifted with it.
@@ -2518,5 +2527,261 @@ describe('deposit: cabinetry deposit follows the presented estimate, not a price
             { role: 'assistant', content: 'And the total width of the wall, in feet?' }
         ];
         assert.equal(computeDepositOffer('7ft', history), null);
+    });
+});
+
+
+// ── Deposit amount options ──────────────────────────────────────
+// A customer may put down 10% of the grand total or one of a few fixed amounts.
+// The security property these pin: the client only ever SELECTS among amounts
+// the server generated for a server-computed total. No client value is parsed
+// into an amount, and nothing outside ALLOWED_FIXED_DEPOSITS (or the computed
+// 10%) can reach Stripe.
+describe('deposit amount options', () => {
+
+    // Priced model + explicit buy intent -> a wallbed_only basis (the fixture
+    // the purchase-intent suite already relies on).
+    const BED_ONLY_HISTORY = [
+        { role: 'user', content: 'Is there a Murano Single?' },
+        { role: 'assistant', content: 'Yes — the Murano Single is RM 16,083.40 retail | RM 12,062.55 sale.' }
+    ];
+    const BED_ONLY_MESSAGE = 'I want the Murano Single';
+    const bedOnlyTotal = () => WALLBED_MODEL_PRICING.find(m => m.label === 'Murano Single').sale;
+
+    // Worked example 4 — the cabinetry fixture whose grand total (RM 38,300.11)
+    // is verified against the formula earlier in this file.
+    const CAB_HISTORY = [
+        { role: 'user', content: 'I want a Murano Queen Sofa with side cabinets around it, how much in total?' },
+        { role: 'assistant', content: 'Sure! What is the total height of the wall, in feet?' },
+        { role: 'user', content: '11ft' },
+        { role: 'assistant', content: 'Got it. What is the total width of the wall, in feet?' }
+    ];
+    const CAB_MESSAGE = '10ft';
+
+    test('the allowed fixed amounts are exactly the four agreed values, and frozen', () => {
+        assert.deepEqual([...ALLOWED_FIXED_DEPOSITS], [1500, 2500, 3500, 4500]);
+        assert.ok(Object.isFrozen(ALLOWED_FIXED_DEPOSITS));
+        assert.throws(() => ALLOWED_FIXED_DEPOSITS.push(99999), TypeError,
+            'nothing at runtime may add a chargeable amount');
+    });
+
+    // ── Requirement: a fixed amount not in ALLOWED_FIXED_DEPOSITS is rejected ──
+    test('a fixed amount not in ALLOWED_FIXED_DEPOSITS is rejected', () => {
+        const total = 50000;
+        for (const bogus of ['fixed_1000', 'fixed_2000', 'fixed_5000', 'fixed_1', 'fixed_0', 'fixed_-1500', 'fixed_99999']) {
+            const r = resolveDepositChoice(total, bogus);
+            assert.equal(r.ok, false, 'must reject ' + bogus);
+            assert.equal(r.option, undefined, 'a rejection must carry no amount to charge');
+        }
+    });
+
+    // The client value is a lookup key, never parsed. Every shape a tampered
+    // request body can carry must fail to match rather than be coerced.
+    test('tampered or malformed choices never resolve to an amount', () => {
+        const total = 50000;
+        const tampered = [
+            1500, '1500', 'fixed_1500 ', ' fixed_1500', 'FIXED_1500', 'Fixed_1500',
+            'fixed_1500.00', 'fixed_01500', 'fixed_1500 ', 'percent ', 'PERCENT', '10%', '10',
+            '', true, false, 0, NaN, ['fixed_1500'], { id: 'fixed_1500' }, { amount: 1500 },
+            '__proto__', 'constructor', 'toString', 'hasOwnProperty'
+        ];
+        for (const choice of tampered) {
+            const r = resolveDepositChoice(total, choice);
+            assert.equal(r.ok, false, 'must reject ' + JSON.stringify(choice) + ' (' + typeof choice + ')');
+        }
+    });
+
+    // ── Requirement: each of the four is accepted when below the grand total ──
+    test('each of the four fixed amounts is accepted when below the grand total', () => {
+        const total = 50000;
+        for (const amount of ALLOWED_FIXED_DEPOSITS) {
+            const r = resolveDepositChoice(total, 'fixed_' + amount);
+            assert.equal(r.ok, true, 'must accept fixed_' + amount);
+            assert.equal(r.option.kind, 'fixed');
+            assert.equal(r.option.amount, amount, 'the amount must come from the constant');
+        }
+    });
+
+    // ── Requirement: the 10% option still equals 10% of the server total ──
+    test('the 10% option equals 10% of the server-computed grand total', () => {
+        const total = bedOnlyTotal();
+        const r = resolveDepositChoice(total, DEPOSIT_OPTION_PERCENT);
+        assert.equal(r.ok, true);
+        assert.equal(r.option.kind, 'percent');
+        assert.equal(r.option.percent, DEPOSIT_PERCENT);
+        assert.equal(r.option.amount, round2(total * DEPOSIT_PERCENT / 100));
+    });
+
+    // A widget loaded before options existed sends no choice; it must still get
+    // the 10% deposit it always did. Only an ABSENT choice may default.
+    test('an absent choice resolves to the 10% deposit; a present invalid one does not', () => {
+        const total = 38300.11;
+        for (const absent of [undefined, null]) {
+            const r = resolveDepositChoice(total, absent);
+            assert.equal(r.ok, true);
+            assert.equal(r.option.id, DEPOSIT_OPTION_PERCENT);
+            assert.equal(r.option.amount, 3830.01);
+        }
+        assert.equal(resolveDepositChoice(total, '').ok, false,
+            'a present-but-empty choice is invalid, not a request for the default');
+    });
+
+    // ── Requirement: a fixed option >= grand total is not offered ──
+    test('a fixed option at or above the grand total is not offered', () => {
+        const ids = total => getDepositOptions(total).map(o => o.id);
+
+        assert.deepEqual(ids(3000), ['percent', 'fixed_1500', 'fixed_2500']);
+        // Boundary: EQUAL to the total is not a deposit either.
+        assert.deepEqual(ids(2500), ['percent', 'fixed_1500']);
+        assert.deepEqual(ids(2500.01), ['percent', 'fixed_1500', 'fixed_2500']);
+        assert.deepEqual(ids(1500), ['percent']);
+        assert.deepEqual(ids(1000), ['percent'], 'the 10% option is always kept');
+        assert.deepEqual(ids(50000), ['percent', 'fixed_1500', 'fixed_2500', 'fixed_3500', 'fixed_4500']);
+    });
+
+    // Hiding an option is presentation. The security boundary is that the same
+    // filter applies at charge time, so a crafted request for a hidden option is
+    // refused rather than charged.
+    test('a fixed option at or above the grand total cannot be charged either', () => {
+        assert.equal(resolveDepositChoice(3000, 'fixed_3500').ok, false);
+        assert.equal(resolveDepositChoice(3000, 'fixed_4500').ok, false);
+        assert.equal(resolveDepositChoice(2500, 'fixed_2500').ok, false);
+        assert.equal(resolveDepositChoice(3000, 'fixed_2500').ok, true);
+    });
+
+    test('no options exist for a missing or nonsensical grand total', () => {
+        for (const total of [0, -100, NaN, Infinity, null, undefined, '38300.11']) {
+            assert.deepEqual(getDepositOptions(total), [], 'no options for ' + String(total));
+            assert.equal(resolveDepositChoice(total, undefined).ok, false);
+        }
+    });
+
+    // ── The offer carried in the chat response ──
+    test('computeDepositOffer keeps its 10% fields and lists the options for a real conversation', () => {
+        const offer = computeDepositOffer(CAB_MESSAGE, CAB_HISTORY);
+        assert.ok(offer, 'fixture must produce an offer');
+        assert.equal(offer.grandTotal, 38300.11);
+        assert.equal(offer.depositPercent, DEPOSIT_PERCENT);
+        assert.equal(offer.depositAmount, 3830.01);
+        assert.deepEqual(offer.depositOptions.map(o => o.id),
+            ['percent', 'fixed_1500', 'fixed_2500', 'fixed_3500', 'fixed_4500']);
+        assert.equal(offer.depositOptions[0].amount, offer.depositAmount,
+            'the 10% option is the same amount the legacy fields carry');
+    });
+
+    // ── End to end at the charge step: raw client input -> sen ──
+    test('buildDepositCharge charges 10% of the re-derived total, in sen', () => {
+        const charge = buildDepositCharge(BED_ONLY_MESSAGE, BED_ONLY_HISTORY, 'percent');
+        assert.equal(charge.ok, true);
+        const expected = round2(bedOnlyTotal() * DEPOSIT_PERCENT / 100);
+        assert.equal(charge.depositAmount, expected);
+        assert.equal(charge.unitAmountCents, Math.round(expected * 100));
+        assert.equal(charge.productName, DEPOSIT_PERCENT + '% Deposit — Murano Single',
+            'the percentage line item keeps its existing name');
+        assert.equal(charge.metadata.deposit_percent, String(DEPOSIT_PERCENT));
+        assert.equal(charge.metadata.deposit_option, 'percent');
+        assert.equal(charge.metadata.deposit_option_kind, 'percent');
+    });
+
+    test('buildDepositCharge charges a chosen fixed amount exactly, and records the choice', () => {
+        const charge = buildDepositCharge(CAB_MESSAGE, CAB_HISTORY, 'fixed_2500');
+        assert.equal(charge.ok, true);
+        assert.equal(charge.grandTotal, 38300.11, 'the grand total is still the server-computed one');
+        assert.equal(charge.depositAmount, 2500);
+        assert.equal(charge.unitAmountCents, 250000);
+        assert.equal(charge.productName, 'RM 2,500.00 Deposit — Murano Queen Sofa + Cabinetry');
+        assert.equal(charge.metadata.deposit_option, 'fixed_2500');
+        assert.equal(charge.metadata.deposit_option_kind, 'fixed');
+        assert.equal(charge.metadata.deposit_option_label, 'Fixed RM 2,500.00');
+        assert.equal(charge.metadata.deposit_percent, '', 'no percentage was applied — do not claim one');
+        assert.equal(charge.metadata.grand_total, '38300.11');
+        assert.equal(charge.metadata.cabinets, 'Yes');
+        assert.equal(charge.metadata.wall_height_ft, '11');
+        assert.equal(charge.metadata.total_wall_width_ft, '10');
+    });
+
+    test('buildDepositCharge rejects an invalid choice with a 400 and nothing to charge', () => {
+        for (const bogus of ['fixed_2000', 1500, 'fixed_99999', '']) {
+            const charge = buildDepositCharge(BED_ONLY_MESSAGE, BED_ONLY_HISTORY, bogus);
+            assert.equal(charge.ok, false, 'must reject ' + JSON.stringify(bogus));
+            assert.equal(charge.status, 400);
+            assert.equal(charge.rejectedOption, true);
+            assert.equal(charge.unitAmountCents, undefined);
+            assert.equal(charge.metadata, undefined);
+        }
+    });
+
+    test('buildDepositCharge refuses when the conversation has no payable basis, whatever the choice', () => {
+        const charge = buildDepositCharge('hello', [], 'fixed_1500');
+        assert.equal(charge.ok, false);
+        assert.equal(charge.status, 400);
+        assert.equal(charge.rejectedOption, undefined, 'a missing quote is not a bad option');
+        assert.equal(charge.unitAmountCents, undefined);
+    });
+
+    // create-deposit.js imports `stripe`, so its handler isn't run here. These
+    // pin its wiring: the charge must come from buildDepositCharge(), and no
+    // amount may be read off the request body.
+    test('api/create-deposit.js charges only what buildDepositCharge() returns', () => {
+        const src = readFileSync(new URL('../api/create-deposit.js', import.meta.url), 'utf8');
+        assert.match(src, /buildDepositCharge\(message, history, depositOption\)/);
+        assert.match(src, /unit_amount:\s*charge\.unitAmountCents/);
+        assert.match(src, /const \{ message, history, depositOption \} = req\.body \|\| \{\};/,
+            'depositOption must be the only deposit field read from the body');
+        assert.doesNotMatch(src, /req\.body\.\w*(?:amount|total|deposit)/i, 'no amount may be read off the body');
+        assert.doesNotMatch(src, /DEPOSIT_PERCENT|round2|\*\s*100\b/,
+            'create-deposit.js must do no deposit arithmetic of its own');
+    });
+
+    // Every field written at charge time must be read back by the webhook, or it
+    // sits in Stripe and never reaches the Sheet or the email.
+    test('every metadata field buildDepositCharge writes is read by the webhook', () => {
+        const webhook = readFileSync(new URL('../api/stripe-webhook.js', import.meta.url), 'utf8');
+        const charge = buildDepositCharge(CAB_MESSAGE, CAB_HISTORY, 'fixed_1500');
+        assert.equal(charge.ok, true);
+        for (const key of ['quote_ref', ...Object.keys(charge.metadata)]) {
+            assert.ok(webhook.includes('meta.' + key), 'stripe-webhook.js never reads metadata.' + key);
+        }
+    });
+
+    // ── Staff-facing record ──
+    test('the email records a fixed-amount choice without claiming a percentage', () => {
+        const { text, html } = buildDepositEmail({
+            depositTypeLabel: 'Wall Bed Only',
+            wallBedModel: 'Murano Single',
+            grandTotal: '12062.55',
+            depositPercent: '',
+            depositOption: 'fixed_1500',
+            depositOptionKind: 'fixed',
+            depositOptionLabel: 'Fixed RM 1,500.00',
+            depositAmountPaid: '1500.00'
+        });
+        assert.match(text, /^Deposit option: Fixed RM 1,500\.00$/m);
+        assert.match(text, /A fixed-amount deposit has been paid\./);
+        assert.doesNotMatch(text, /\?%/, 'must not print a placeholder percentage');
+        assert.match(html, /Deposit option/);
+        assert.match(html, /Fixed RM 1,500\.00/);
+        assert.doesNotMatch(html, /Deposit %/, 'no percentage row for a fixed deposit');
+        assert.doesNotMatch(html, /\?%/);
+    });
+
+    test('the email keeps its 10% wording for a percentage choice', () => {
+        const { text, html } = buildDepositEmail({
+            depositTypeLabel: 'Wall Bed Only',
+            depositPercent: '10',
+            depositOption: 'percent',
+            depositOptionKind: 'percent',
+            depositOptionLabel: '10% of total',
+            depositAmountPaid: '1206.26'
+        });
+        assert.match(text, /A 10% deposit has been paid\./);
+        assert.match(text, /^Deposit option: 10% of total$/m);
+        assert.match(html, /Deposit %/);
+    });
+
+    test('an email for a session from before options existed is honest about it', () => {
+        const { text } = buildDepositEmail({ depositTypeLabel: 'Wall Bed Only', depositPercent: '10' });
+        assert.match(text, /A 10% deposit has been paid\./, 'legacy wording unchanged');
+        assert.match(text, /^Deposit option: \(not recorded\)$/m);
     });
 });

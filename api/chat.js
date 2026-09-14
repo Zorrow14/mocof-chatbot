@@ -250,11 +250,16 @@ ${buildCabinetryEstimateBlock(message, history)}
 RESERVATION DEPOSIT:
 - MOCOF takes a ${DEPOSIT_PERCENT}% reservation deposit to hold an order. It goes toward the
   final invoice, which is confirmed by a site survey.
+- The customer can instead choose a fixed deposit amount. They pick how much to put down
+  on the deposit card itself, which lists every option with its exact figure (fixed
+  amounts at or above the order total are not offered). Do NOT list or state those fixed
+  RM amounts yourself — if they ask whether they can pay less or a set amount, just tell
+  them they can choose the amount that suits them on the deposit card below your message.
 - Invite a reservation ONLY when BOTH are true: a SPECIFIC wall bed model has been
   named and priced, AND the customer has signalled they want to buy or reserve THAT
   model (e.g. "I want the Murano Queen", "I'll take it", "can I order one?", "how do I
   reserve?"). Then add one short, low-pressure sentence at the end of your reply, e.g.
-  "Would you like to reserve your **Murano Queen** with a ${DEPOSIT_PERCENT}% deposit?".
+  "Would you like to reserve your **Murano Queen** with a deposit?".
 - If the customer is only asking whether a product exists, what it costs, or anything
   else informational — "Do you have a Murano Single?", "Is there a Gioco Queen?",
   "How much is it?", "Tell me about it" — just answer the question. Do NOT mention
@@ -1120,6 +1125,21 @@ function buildCabinetryEstimateBlock(message, history) {
 // stripe-payment-gateway-proposal-v2.md Section 1.
 const DEPOSIT_PERCENT = 10;
 
+// Fixed-amount deposit options (RM), offered alongside the percentage deposit so
+// a customer can choose how much to put down. These are the ONLY fixed amounts a
+// customer can ever be charged. The widget never sends a number back: it sends
+// the id of an option the server generated (see getDepositOptions()), and
+// resolveDepositChoice() only accepts an exact match against a list it rebuilds
+// from this constant at charge time. Frozen so nothing at runtime can append to
+// it. Changing a value here changes what can be charged — treat it like a price.
+const ALLOWED_FIXED_DEPOSITS = Object.freeze([1500, 2500, 3500, 4500]);
+
+// Option ids and kinds. Written into Stripe session metadata, so like the
+// deposit types below they are a stored format, not display strings.
+const DEPOSIT_OPTION_PERCENT = 'percent';
+const DEPOSIT_OPTION_KIND_PERCENT = 'percent';
+const DEPOSIT_OPTION_KIND_FIXED = 'fixed';
+
 // Deposit type identifiers. These are written into Stripe session metadata and
 // then straight into the Google Sheet column, so they are a stored data format,
 // not display strings — changing a value here changes what future Sheet rows
@@ -1369,8 +1389,157 @@ function computeDepositOffer(message, history) {
         depositType: basis.type,
         wallBedModelLabel: basis.wallBedModelLabel,
         grandTotal: basis.total,
+        // The percentage deposit, unchanged — still the card's default choice.
         depositPercent: DEPOSIT_PERCENT,
-        depositAmount: round2(basis.total * DEPOSIT_PERCENT / 100)
+        depositAmount: round2(basis.total * DEPOSIT_PERCENT / 100),
+        // Everything the customer may pick between, for display only. Nothing
+        // here is trusted later: api/create-deposit.js receives just the chosen
+        // option's id and rebuilds this same list server-side before charging.
+        depositOptions: getDepositOptions(basis.total)
+    };
+}
+
+// ── Deposit amount options ──────────────────────────────────────
+// The customer chooses how much to put down: DEPOSIT_PERCENT of the grand total
+// (always offered), or one of ALLOWED_FIXED_DEPOSITS. A fixed amount at or above
+// the grand total is never offered — a RM 4,500 deposit on a RM 3,000 order is
+// not a deposit — and because resolveDepositChoice() validates against this
+// same filtered list, it can't be charged either. Hiding an option in the UI is
+// not the security boundary; this list is.
+function getDepositOptions(grandTotal) {
+    if (typeof grandTotal !== 'number' || !Number.isFinite(grandTotal) || grandTotal <= 0) return [];
+
+    const options = [{
+        id: DEPOSIT_OPTION_PERCENT,
+        kind: DEPOSIT_OPTION_KIND_PERCENT,
+        amount: round2(grandTotal * DEPOSIT_PERCENT / 100),
+        percent: DEPOSIT_PERCENT,
+        label: `${DEPOSIT_PERCENT}% of total`
+    }];
+
+    for (const fixed of ALLOWED_FIXED_DEPOSITS) {
+        if (fixed >= grandTotal) continue;
+        options.push({
+            id: `fixed_${fixed}`,
+            kind: DEPOSIT_OPTION_KIND_FIXED,
+            amount: fixed,
+            percent: null,
+            label: `Fixed ${formatRM(fixed)}`
+        });
+    }
+
+    return options;
+}
+
+// Turns the client's raw choice into an amount the server is willing to charge.
+// The client value is only ever used as a lookup key: it must be a string that
+// EXACTLY equals the id of an option getDepositOptions() just generated for
+// this grand total. The amount always comes from that server-built option,
+// never from anything the client sent — so there is no number to tamper with,
+// and no parsing of client input to get wrong ("fixed_1500 ", "FIXED_1500",
+// 1500, "1500", "fixed_1" all simply fail to match).
+//
+// An ABSENT choice (undefined/null) resolves to the percentage deposit. That is
+// exactly what every checkout did before options existed, so a widget loaded
+// before this change — or any client that doesn't send a choice — still charges
+// what it always did. A PRESENT but unrecognised choice is rejected, never
+// quietly downgraded to the default: a customer who picked RM 1,500 must not be
+// silently charged 10% instead.
+function resolveDepositChoice(grandTotal, depositOption) {
+    const options = getDepositOptions(grandTotal);
+    if (options.length === 0) {
+        return { ok: false, reason: 'no valid grand total to take a deposit against' };
+    }
+
+    if (depositOption === undefined || depositOption === null) {
+        return { ok: true, option: options.find(o => o.id === DEPOSIT_OPTION_PERCENT) };
+    }
+
+    if (typeof depositOption !== 'string') {
+        return { ok: false, reason: 'deposit option must be an option id string' };
+    }
+
+    const option = options.find(o => o.id === depositOption);
+    if (!option) {
+        return { ok: false, reason: 'deposit option is not available for this order' };
+    }
+
+    return { ok: true, option };
+}
+
+// Everything api/create-deposit.js needs to create the Stripe session, computed
+// here so it is testable without the `stripe` dependency — the same reason
+// depositIncludesCabinets() lives in this file. create-deposit.js does no
+// arithmetic and makes no decisions of its own: it passes the raw request body
+// fields straight in and charges exactly what comes back.
+//
+// Both inputs are re-derived at charge time, never carried over from the chat
+// response: the grand total from the replayed conversation (as before), and the
+// deposit amount from resolveDepositChoice() against that fresh total.
+function buildDepositCharge(message, history, depositOption) {
+    const basis = getDepositBasisFromContext(message, history);
+    if (!basis) {
+        return {
+            ok: false,
+            status: 400,
+            reason: 'no deposit basis',
+            error: 'No confirmed wall bed estimate found for this conversation — a deposit can only be created for a fully resolved quote.'
+        };
+    }
+
+    const grandTotal = basis.total;
+    const choice = resolveDepositChoice(grandTotal, depositOption);
+    if (!choice.ok) {
+        return {
+            ok: false,
+            status: 400,
+            rejectedOption: true,
+            reason: choice.reason,
+            error: 'That deposit option is not available for this order — please choose one of the options shown.'
+        };
+    }
+
+    const { option } = choice;
+
+    // What the customer sees on the Stripe Checkout page. A wall-bed-only
+    // deposit must not say "+ Cabinetry" — that would describe scope they
+    // aren't paying for.
+    const scopeName = basis.type === DEPOSIT_TYPE_WITH_CABINETRY
+        ? `${basis.wallBedModelLabel} + Cabinetry`
+        : basis.wallBedModelLabel;
+    const productName = option.kind === DEPOSIT_OPTION_KIND_PERCENT
+        ? `${option.percent}% Deposit — ${scopeName}`
+        : `${formatRM(option.amount)} Deposit — ${scopeName}`;
+
+    return {
+        ok: true,
+        basis,
+        grandTotal,
+        option,
+        depositAmount: option.amount,
+        // Stripe amounts are in the smallest currency unit (sen).
+        unitAmountCents: Math.round(option.amount * 100),
+        productName,
+        // `cabinets` is the Yes/No api/stripe-webhook.js reads back and
+        // lib/sheetsLogger.js writes into the Sheet's Cabinets column;
+        // `deposit_type` is the precise identifier kept alongside it. Both
+        // derive from basis.type, so they cannot disagree. The deposit_option_*
+        // fields record which option the customer actually chose, for the Sheet
+        // and the email; deposit_percent is blank for a fixed-amount deposit
+        // rather than claiming a percentage that wasn't applied. The measurement
+        // fields are empty on a wall-bed-only deposit.
+        metadata: {
+            cabinets: depositIncludesCabinets(basis.type),
+            deposit_type: basis.type,
+            wall_bed_model: basis.wallBedModelLabel,
+            grand_total: grandTotal.toFixed(2),
+            deposit_percent: option.kind === DEPOSIT_OPTION_KIND_PERCENT ? String(option.percent) : '',
+            deposit_option: option.id,
+            deposit_option_kind: option.kind,
+            deposit_option_label: option.label,
+            wall_height_ft: basis.heightFt !== null && basis.heightFt !== undefined ? String(basis.heightFt) : '',
+            total_wall_width_ft: basis.totalWidthFt !== null && basis.totalWidthFt !== undefined ? String(basis.totalWidthFt) : ''
+        }
     };
 }
 
@@ -1446,7 +1615,12 @@ export {
     BASIC_FURNITURE_COMPANION_KEYS,
     MURANO_MIN_CEILING_FT,
     computeDepositOffer,
-    DEPOSIT_PERCENT
+    DEPOSIT_PERCENT,
+    ALLOWED_FIXED_DEPOSITS,
+    DEPOSIT_OPTION_PERCENT,
+    getDepositOptions,
+    resolveDepositChoice,
+    buildDepositCharge
 };
 
 // ── Main handler ──────────────────────────────────────────────

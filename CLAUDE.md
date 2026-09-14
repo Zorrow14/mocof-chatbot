@@ -89,7 +89,9 @@ Both paths refuse a deposit when `detectMuranoCeilingConflict()` fires: never ta
 
 The `type` on the returned basis drives three things: the widget's deposit-card label, the Stripe line-item name (a wall-bed-only deposit must not say "+ Cabinetry"), and the Sheet's Cabinets column via `depositIncludesCabinets()`.
 
-`api/create-deposit.js` imports `getDepositBasisFromContext` and `DEPOSIT_PERCENT` **from `api/chat.js`** (one serverless entrypoint importing another) and re-derives the total from the replayed conversation. The client sends only `{ message, history }` — never an amount. The model is barred from writing payment links at all; the widget renders the button from the structured `deposit` field.
+`api/create-deposit.js` imports `buildDepositCharge` **from `api/chat.js`** (one serverless entrypoint importing another), which re-derives the total from the replayed conversation via `getDepositBasisFromContext()`. The client sends `{ message, history, depositOption }` — never an amount. The model is barred from writing payment links at all; the widget renders the card from the structured `deposit` field.
+
+**Deposit amount options.** The customer picks how much to put down on the card: `DEPOSIT_PERCENT` of the grand total (always offered, and the default), or one of `ALLOWED_FIXED_DEPOSITS` (RM 1,500 / 2,500 / 3,500 / 4,500). `getDepositOptions()` builds the list and drops any fixed amount at or above the grand total. `depositOption` is an option **id** (`percent`, `fixed_1500`, …), not an amount: `resolveDepositChoice()` rebuilds the list from the freshly re-derived total at charge time, accepts only an exact id match, and takes the amount from its own option object. So the client never supplies a number, and a fixed amount at or above the total is uncharged, not merely hidden. An *absent* choice resolves to the percentage deposit — what every checkout did before options existed — while a *present* but unrecognised one is rejected with a 400, never silently downgraded. `buildDepositCharge()` holds all of this plus the line-item name and Stripe metadata so it is testable without `stripe`; `create-deposit.js` does no arithmetic. The fixed amounts are deliberately **not** added to `MASTER_PRICE_LIST`: that would let the model state "RM 1,500" as a price for anything without the guardrail noticing, so the prompt tells it to point at the card instead of naming the figures.
 
 `api/stripe-webhook.js` sets `export const config = { api: { bodyParser: false } }` — Stripe's signature check needs the exact raw bytes, and re-serializing parsed JSON breaks it. It handles `checkout.session.completed` (not the success redirect, which a customer can skip by closing the tab), and returns 200 for every event type so Stripe doesn't retry ones we intentionally ignore. `notifyCompany()` (Resend) and `logDepositToSheet()` both swallow their own errors — a notification failure must never turn into a 500 and cause Stripe to retry an already-processed event.
 
@@ -99,11 +101,11 @@ The `type` on the returned basis drives three things: the widget's deposit-card 
 
 `logDepositToSheet()` appends one row per confirmed deposit into a fixed range. Column order is a **stored data format** — rows already in the Sheet are written this way, so add new columns at the *end* and widen the range to match. The Sheets API silently truncates a row longer than its range rather than erroring, so a mismatch loses data quietly.
 
-| A | B | C | D | E | F | G | H | I | J | K |
-|---|---|---|---|---|---|---|---|---|---|---|
-| Timestamp | Quote Ref | Wall Bed Model | Grand Total | Deposit % | Deposit Paid | Customer Email | Customer Name | Customer Phone | Stripe Session ID | Cabinets |
+| A | B | C | D | E | F | G | H | I | J | K | L |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| Timestamp | Quote Ref | Wall Bed Model | Grand Total | Deposit % | Deposit Paid | Customer Email | Customer Name | Customer Phone | Stripe Session ID | Cabinets | Deposit Option |
 
-Range: `<tab>!A:K`. The same table (with per-column value notes) is in [GOOGLE_SHEETS_CREDENTIALS.md](GOOGLE_SHEETS_CREDENTIALS.md), since that's what you follow when creating the sheet's header row — keep both in sync.
+Range: `<tab>!A:L`. The same table (with per-column value notes) is in [GOOGLE_SHEETS_CREDENTIALS.md](GOOGLE_SHEETS_CREDENTIALS.md), since that's what you follow when creating the sheet's header row — keep both in sync.
 
 **Columns G–I come from Stripe, not the widget.** `api/create-deposit.js` sets `phone_number_collection: { enabled: true }` and `billing_address_collection: 'required'` on the Checkout Session; the webhook reads them back off `session.customer_details`. Stripe has no standalone "collect name" switch — `customer_details.name` is filled from the billing-details form, which is why address collection is required rather than relying on the card form's cardholder-name field. That field doesn't exist for FPX, a payment method this session accepts, so the name would silently be blank for those customers otherwise. Any of G–I can still be blank if Stripe captured nothing.
 
@@ -112,6 +114,8 @@ Range: `<tab>!A:K`. The same table (with per-column value notes) is in [GOOGLE_S
 That value is derived, never tracked separately: `depositIncludesCabinets()` in `api/chat.js` maps the deposit type to Yes/No, `api/create-deposit.js` writes it into Stripe session metadata as `cabinets`, and the webhook reads it back. An **unrecognised type returns `''`** on purpose — a future third deposit type must not be silently recorded as "No", since a confident wrong answer in a business record is worse than a blank cell that visibly needs attention. The mapping lives in `chat.js` rather than `create-deposit.js` so it's testable without the `stripe` dependency.
 
 Sessions created before the `cabinets` field existed log an empty cell rather than being guessed at. `test/consistency.test.js` pins the column order, the row width against the range, and the Yes/No mapping.
+
+**Deposit Option** (L) is the option the customer chose on the card — `10% of total` or `Fixed RM 1,500.00` — written by `buildDepositCharge()` into metadata as `deposit_option_label` at charge time. For a fixed-amount deposit **Deposit %** (E) is blank rather than claiming a percentage that wasn't applied. **Deposit Paid** (F) is always Stripe's own `amount_total`, whichever option was chosen. Sessions created before options existed leave L empty.
 
 Adding a column: append at the **end** and widen the range in the same edit. The contact fields (H, I) were inserted mid-row instead, which moved Stripe Session ID from H to J — any row written before that change is misaligned from column H onward. That was acceptable only because the integration hadn't logged anything yet; assume it isn't next time.
 

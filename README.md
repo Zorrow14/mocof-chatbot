@@ -1,6 +1,6 @@
 ﻿# MOCOF Chatbot
 
-A Vercel-hosted AI chatbot for MOCOF that answers product questions, helps shortlist wall beds, furniture, and bedding, calculates surround-cabinetry estimates, and can offer a 10% reservation deposit through Stripe.
+A Vercel-hosted AI chatbot for MOCOF that answers product questions, helps shortlist wall beds, furniture, and bedding, calculates surround-cabinetry estimates, and can take a reservation deposit through Stripe — 10% of the total, or a fixed amount the customer chooses.
 
 ## Overview
 
@@ -126,7 +126,7 @@ All three inputs are required. Until every one is known, the prompt instead carr
 
 ### Deposit flow
 
-The widget can show a "Pay 10% Deposit" button in two situations:
+The widget can show a deposit card in two situations:
 
 - **Wall bed + cabinetry** — the combined grand total, once a full estimate has been quoted.
 - **Wall bed only** — the model's sale price alone, for a customer who never raised cabinetry.
@@ -143,22 +143,30 @@ The flow is:
 
 1. `api/chat.js` computes a deposit offer using the same basis the pricing breakdown uses.
 2. The browser sends the conversation snapshot to `POST /api/create-deposit`.
-3. `api/create-deposit.js` re-derives the total instead of trusting client-supplied amounts.
-4. Stripe creates a hosted Checkout session in MYR using the calculated deposit.
+3. `api/create-deposit.js` re-derives the total instead of trusting client-supplied amounts, then re-validates the customer's chosen deposit option against it.
+4. Stripe creates a hosted Checkout session in MYR for the validated deposit amount.
 5. Stripe sends `checkout.session.completed` to `api/stripe-webhook.js`.
 6. The webhook verifies the signature, then records the deposit by email and to Google Sheets.
 
 After payment, `public/deposit-success.html` confirms the deposit and — when the original chat tab is still reachable — posts back to it so the confirmation also appears as a message in the conversation. That messaging is best-effort; the success page is a complete confirmation on its own if it fails.
 
+### Deposit amount options
+
+The deposit card lets the customer choose how much to put down: **10% of the total** (the default), or a fixed **RM 1,500 / RM 2,500 / RM 3,500 / RM 4,500**. A fixed amount at or above the order's total is not offered.
+
+The browser sends back only the chosen option's id (`percent`, `fixed_1500`, …), never an amount. `api/create-deposit.js` rebuilds the option list from the freshly re-derived grand total and accepts only an exact match against it, so a tampered request can neither introduce a new amount nor charge one that wasn't offered. The allowed fixed amounts live in a single server-side constant, `ALLOWED_FIXED_DEPOSITS` in `api/chat.js`.
+
 ### Deposit logging
 
-Every confirmed deposit appends one row to the configured Google Sheet, in the range `<tab>!A:K`:
+Every confirmed deposit appends one row to the configured Google Sheet, in the range `<tab>!A:L`:
 
-| A | B | C | D | E | F | G | H | I | J | K |
-|---|---|---|---|---|---|---|---|---|---|---|
-| Timestamp | Quote Ref | Wall Bed Model | Grand Total | Deposit % | Deposit Paid | Customer Email | Customer Name | Customer Phone | Stripe Session ID | Cabinets |
+| A | B | C | D | E | F | G | H | I | J | K | L |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| Timestamp | Quote Ref | Wall Bed Model | Grand Total | Deposit % | Deposit Paid | Customer Email | Customer Name | Customer Phone | Stripe Session ID | Cabinets | Deposit Option |
 
 **Cabinets** is `Yes` or `No` — whether the deposit covers surround cabinetry or the bed alone.
+
+**Deposit Option** is the option the customer picked — `10% of total`, or `Fixed RM 1,500.00` and so on. For a fixed-amount deposit, **Deposit %** is left blank. The notification email shows the same option.
 
 Customer email, name, and phone are collected by Stripe's hosted checkout page, not by the chat widget, and read back from `session.customer_details`. Any of them can be blank if Stripe captured nothing.
 
@@ -230,7 +238,7 @@ The suite is offline and needs no credentials: the Google Sheets tests stub `glo
 - Price response seems blocked unexpectedly: check logs for the guardrail message and inspect whether the amount was recognized.
 - Deposit button does not appear: a price question must have been asked, and a specific wall bed model established. If cabinetry has been mentioned, the button waits for the full combined estimate rather than offering the bed alone. A Murano below the 2.4 m ceiling minimum is never offered a deposit.
 - Deposit confirmation does not appear in the chat after paying: expected when the original tab was closed, or if the browser severed `window.opener` on the way through Stripe. The success page still confirms the payment, and the webhook still records it — nothing is lost.
-- Sheet columns look shifted: the row must line up with the `A:K` range. A row wider than its range is truncated silently by the Sheets API, so check both together after adding a column.
+- Sheet columns look shifted: the row must line up with the `A:L` range. A row wider than its range is truncated silently by the Sheets API, so check both together after adding a column.
 - Stripe webhook returns 400: verify `STRIPE_WEBHOOK_SECRET` matches the endpoint and the body parser is disabled in `api/stripe-webhook.js`.
 - Deposit logging is missing: confirm the `GOOGLE_SHEETS_*` variables are configured.
 - Deposit notification email not arriving: confirm both `EMAIL_API_KEY` and `COMPANY_NOTIFY_EMAIL` are set and that you redeployed afterwards. On Resend's test sender (no `EMAIL_FROM_ADDRESS`), `COMPANY_NOTIFY_EMAIL` must be your own Resend account email, or Resend returns a `403` — check the `stripe-webhook` function logs for the error.

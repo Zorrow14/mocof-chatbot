@@ -1,19 +1,16 @@
 // =============================================================
 // FILE: api/create-deposit.js
 // Vercel Serverless Function — creates a Stripe Checkout Session for a
-// reservation deposit against a wall bed + cabinetry estimate.
+// reservation deposit against a wall bed (+ cabinetry) estimate.
 // Endpoint: POST /api/create-deposit
+// Body: { message, history, depositOption? }
 // Env vars: STRIPE_SECRET_KEY, SITE_URL (optional — falls back to the
 //           production widget origin)
 // =============================================================
 
 import Stripe from 'stripe';
-import { getDepositBasisFromContext, DEPOSIT_PERCENT, DEPOSIT_TYPE_WITH_CABINETRY, depositIncludesCabinets } from './chat.js';
+import { buildDepositCharge } from './chat.js';
 import { generateQuoteRef } from '../lib/reference.js';
-
-function round2(n) {
-    return Math.round(n * 100) / 100;
-}
 
 function getStripeClient() {
     const key = process.env.STRIPE_SECRET_KEY;
@@ -39,35 +36,33 @@ export default async function handler(req, res) {
         return res.status(500).json({ error: 'Server configuration error — payments are not yet configured' });
     }
 
-    const { message, history } = req.body || {};
+    // depositOption is the ONLY deposit-related field read from the body, and
+    // it is an option id, not an amount. Any grandTotal / depositAmount / amount
+    // a client includes is ignored — it is never even destructured here.
+    const { message, history, depositOption } = req.body || {};
     if (!message || typeof message !== 'string' || !message.trim()) {
         return res.status(400).json({ error: 'message is required' });
     }
 
-    // NEVER trust a grandTotal/depositAmount sent by the client. Re-derive the
-    // basis from the message/history using the SAME function api/chat.js's
-    // computeDepositOffer() used to show the button — not a parallel
-    // reimplementation, so the quoted and charged amounts cannot diverge. The
-    // rule the proposal states explicitly: trust the server-calculated
-    // estimate, never a number that passed through the browser (or the model's
-    // text) on the way here.
-    const basis = getDepositBasisFromContext(message, history);
-    if (!basis) {
-        return res.status(400).json({
-            error: 'No confirmed wall bed estimate found for this conversation — a deposit can only be created for a fully resolved quote.'
-        });
+    // NEVER trust a grandTotal/depositAmount sent by the client. buildDepositCharge()
+    // re-derives the basis from message/history using the SAME function
+    // computeDepositOffer() used to show the card — not a parallel
+    // reimplementation, so the quoted and charged amounts cannot diverge — and
+    // then re-validates the chosen deposit option against a list rebuilt from
+    // that fresh total. The amount charged below is exactly what it returns;
+    // this file does no arithmetic of its own.
+    const charge = buildDepositCharge(message, history, depositOption);
+    if (!charge.ok) {
+        if (charge.rejectedOption) {
+            // Our own widget only ever sends ids the server generated, so a
+            // rejected choice means drift or tampering — worth seeing. Truncated
+            // because this is raw client input.
+            console.warn('[deposit] rejected deposit option:', charge.reason, '|', String(JSON.stringify(depositOption)).slice(0, 100));
+        }
+        return res.status(charge.status).json({ error: charge.error });
     }
 
-    const grandTotal = basis.total;
-    const depositAmount = round2(grandTotal * DEPOSIT_PERCENT / 100);
     const quoteRef = generateQuoteRef();
-
-    // What the customer sees on the Stripe Checkout page. A wall-bed-only
-    // deposit must not say "+ Cabinetry" — that would describe scope they
-    // aren't paying for.
-    const lineItemName = basis.type === DEPOSIT_TYPE_WITH_CABINETRY
-        ? `${basis.wallBedModelLabel} + Cabinetry`
-        : basis.wallBedModelLabel;
     const siteUrl = process.env.SITE_URL || 'https://mocof-chatbot.vercel.app';
 
     try {
@@ -78,10 +73,11 @@ export default async function handler(req, res) {
                 price_data: {
                     currency: 'myr',
                     product_data: {
-                        name: `${DEPOSIT_PERCENT}% Deposit — ${lineItemName}`,
+                        name: charge.productName,
                         description: `Reservation deposit, applied toward the final invoice confirmed by site survey. Quote ref ${quoteRef}.`
                     },
-                    unit_amount: Math.round(depositAmount * 100) // Stripe amounts are in the smallest currency unit (cents)
+                    // Server-resolved in buildDepositCharge(), already in sen.
+                    unit_amount: charge.unitAmountCents
                 },
                 quantity: 1
             }],
@@ -106,21 +102,12 @@ export default async function handler(req, res) {
             // Checkout already prompts for an email as part of its own hosted
             // flow, so nothing is lost by letting Stripe collect it rather than
             // adding a new question to the chat widget just to duplicate it.
-            // `cabinets` is the Yes/No api/stripe-webhook.js reads back and
-            // lib/sheetsLogger.js writes into the Sheet's Cabinets column;
-            // `deposit_type` is the precise identifier kept alongside it for
-            // filtering in the Stripe dashboard. Both derive from basis.type,
-            // so they cannot disagree. The measurement fields are empty on a
-            // wall-bed-only deposit — no wall is being surveyed in that case.
+            //
+            // Everything except quote_ref is built by buildDepositCharge() — see
+            // that function for what each field is and why.
             metadata: {
                 quote_ref: quoteRef,
-                cabinets: depositIncludesCabinets(basis.type),
-                deposit_type: basis.type,
-                wall_bed_model: basis.wallBedModelLabel,
-                grand_total: grandTotal.toFixed(2),
-                deposit_percent: String(DEPOSIT_PERCENT),
-                wall_height_ft: basis.heightFt !== null ? String(basis.heightFt) : '',
-                total_wall_width_ft: basis.totalWidthFt !== null ? String(basis.totalWidthFt) : ''
+                ...charge.metadata
             },
             success_url: `${siteUrl}/deposit-success?session_id={CHECKOUT_SESSION_ID}`,
             cancel_url: siteUrl
@@ -130,8 +117,10 @@ export default async function handler(req, res) {
             success: true,
             url: session.url,
             quoteRef,
-            depositAmount,
-            grandTotal
+            depositAmount: charge.depositAmount,
+            grandTotal: charge.grandTotal,
+            depositOption: charge.option.id,
+            depositOptionLabel: charge.option.label
         });
     } catch (err) {
         console.error('Stripe checkout session creation failed:', err.message || err);

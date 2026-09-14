@@ -303,6 +303,19 @@
   .deposit-btn:disabled { opacity: 0.5; cursor: not-allowed; }
   .deposit-status { font-size: 11px; color: #999999; margin-top: 6px; text-align: center; }
   .deposit-status.err { color: #b00020; }
+  .deposit-options { margin: 2px 0 10px; border: 0; padding: 0; min-width: 0; }
+  .deposit-options legend { font-size: 12px; color: #555555; margin-bottom: 6px; padding: 0; }
+  .deposit-opt {
+    display: flex; align-items: center; gap: 8px; cursor: pointer;
+    font-size: 12px; color: #333333; padding: 7px 10px; margin-bottom: 6px;
+    border: 1px solid #dddddd; border-radius: 10px; transition: border-color 0.15s, background 0.15s;
+  }
+  .deposit-opt:hover { border-color: #999999; }
+  .deposit-opt.selected { border-color: #000000; background: #f6f6f6; }
+  .deposit-opt input { margin: 0; accent-color: #000000; }
+  .deposit-opt span { flex: 1; }
+  .deposit-opt strong { color: #000000; font-size: 13px; }
+  .deposit-opt input:disabled + span { color: #999999; }
 
   /* ── MOBILE ── */
   @media (max-width: 480px) {
@@ -580,18 +593,92 @@ function depositScopeLabel(deposit) {
   return 'Grand total';
 }
 
+/* Deposit amount choice. Only options the server actually offered are
+   rendered, and each radio refers to its option by INDEX into that
+   server-provided list, so no server string is ever spliced into an inline
+   handler. The customer's choice travels back to /api/create-deposit as the
+   option's id — never as an amount. The server rebuilds the option list from a
+   freshly re-derived grand total and rejects any id it didn't generate, so
+   nothing selected or edited here can change what gets charged. The percentage
+   option is the default selection, so a customer who just clicks Pay gets
+   exactly what they did before options existed. */
+function validDepositOptions(deposit) {
+  if (!deposit || !deposit.depositOptions || typeof deposit.depositOptions.length !== 'number') return null;
+  var out = [];
+  for (var i = 0; i < deposit.depositOptions.length; i++) {
+    var o = deposit.depositOptions[i];
+    if (o && typeof o.id === 'string' && typeof o.amount === 'number' && typeof o.label === 'string') out.push(o);
+  }
+  return out.length ? out : null;
+}
+
+function depositPayLabel(option) {
+  if (option.kind === 'percent') return 'Pay ' + option.percent + '% Deposit — ' + fmtRM(option.amount);
+  return 'Pay Deposit — ' + fmtRM(option.amount);
+}
+
 function depositHtml(deposit, reqMessage, reqHistory) {
   if (!deposit || typeof deposit.depositAmount !== 'number') return '';
   var id = 'dep' + (++depositSeq);
-  depositContexts[id] = { message: reqMessage, history: reqHistory };
+  var options = validDepositOptions(deposit);
+
+  // A response with no option list: render the original single-option card,
+  // unchanged. payDeposit() then sends no choice, which the server treats as
+  // the percentage deposit.
+  if (!options) {
+    depositContexts[id] = { message: reqMessage, history: reqHistory, options: null, selected: -1 };
+    return (
+      '<div class="deposit-card">' +
+        '<div class="deposit-line"><span>' + esc(depositScopeLabel(deposit)) + '</span><strong>' + esc(fmtRM(deposit.grandTotal)) + '</strong></div>' +
+        '<div class="deposit-line"><span>' + esc(String(deposit.depositPercent)) + '% deposit due now</span><strong>' + esc(fmtRM(deposit.depositAmount)) + '</strong></div>' +
+        '<button class="deposit-btn" id="' + id + '-btn" onclick="payDeposit(\'' + id + '\')">Pay ' + esc(String(deposit.depositPercent)) + '% Deposit — ' + esc(fmtRM(deposit.depositAmount)) + '</button>' +
+        '<div class="deposit-status" id="' + id + '-status"></div>' +
+      '</div>'
+    );
+  }
+
+  var selected = 0;
+  for (var i = 0; i < options.length; i++) {
+    if (options[i].kind === 'percent') { selected = i; break; }
+  }
+  depositContexts[id] = { message: reqMessage, history: reqHistory, options: options, selected: selected };
+
+  var rows = '';
+  for (var j = 0; j < options.length; j++) {
+    rows +=
+      '<label class="deposit-opt' + (j === selected ? ' selected' : '') + '" id="' + id + '-opt' + j + '">' +
+        '<input type="radio" name="' + id + '-opt" value="' + j + '"' + (j === selected ? ' checked' : '') +
+          ' onchange="selectDepositOption(\'' + id + '\', ' + j + ')">' +
+        '<span>' + esc(options[j].label) + '</span>' +
+        '<strong>' + esc(fmtRM(options[j].amount)) + '</strong>' +
+      '</label>';
+  }
+
   return (
     '<div class="deposit-card">' +
       '<div class="deposit-line"><span>' + esc(depositScopeLabel(deposit)) + '</span><strong>' + esc(fmtRM(deposit.grandTotal)) + '</strong></div>' +
-      '<div class="deposit-line"><span>' + esc(String(deposit.depositPercent)) + '% deposit due now</span><strong>' + esc(fmtRM(deposit.depositAmount)) + '</strong></div>' +
-      '<button class="deposit-btn" id="' + id + '-btn" onclick="payDeposit(\'' + id + '\')">Pay ' + esc(String(deposit.depositPercent)) + '% Deposit — ' + esc(fmtRM(deposit.depositAmount)) + '</button>' +
+      '<fieldset class="deposit-options"><legend>Choose your deposit</legend>' + rows + '</fieldset>' +
+      '<button class="deposit-btn" id="' + id + '-btn" onclick="payDeposit(\'' + id + '\')">' + esc(depositPayLabel(options[selected])) + '</button>' +
       '<div class="deposit-status" id="' + id + '-status"></div>' +
     '</div>'
   );
+}
+
+function selectDepositOption(id, index) {
+  var ctx = depositContexts[id];
+  if (!ctx || !ctx.options || !ctx.options[index]) return;
+  ctx.selected = index;
+  for (var i = 0; i < ctx.options.length; i++) {
+    var row = document.getElementById(id + '-opt' + i);
+    if (row) row.className = 'deposit-opt' + (i === index ? ' selected' : '');
+  }
+  var btn = document.getElementById(id + '-btn');
+  if (btn && !btn.disabled) btn.textContent = depositPayLabel(ctx.options[index]);
+}
+
+function setDepositOptionsDisabled(id, disabled) {
+  var inputs = document.getElementsByName(id + '-opt');
+  for (var i = 0; i < inputs.length; i++) inputs[i].disabled = disabled;
 }
 
 async function payDeposit(id) {
@@ -600,18 +687,38 @@ async function payDeposit(id) {
   var status = document.getElementById(id + '-status');
   if (!ctx || !btn) return;
 
+  // Captured once, before the request, and the radios are locked while it runs:
+  // changing the selection mid-request must not change which option this
+  // checkout is for.
+  var chosen = (ctx.options && ctx.options[ctx.selected]) ? ctx.options[ctx.selected] : null;
+
   btn.disabled = true;
+  setDepositOptionsDisabled(id, true);
   var originalLabel = btn.textContent;
   btn.textContent = 'Starting checkout…';
   if (status) { status.textContent = ''; status.classList.remove('err'); }
 
   try {
+    // Only the chosen option's id is sent — never an amount. Omitted for the
+    // single-option card, which the server treats as the percentage deposit.
+    var payload = { message: ctx.message, history: ctx.history };
+    if (chosen) payload.depositOption = chosen.id;
+
     var res = await fetch(CREATE_DEPOSIT_URL, {
       method:  'POST',
       headers: { 'Content-Type': 'application/json' },
-      body:    JSON.stringify({ message: ctx.message, history: ctx.history })
+      body:    JSON.stringify(payload)
     });
     var data = await res.json();
+
+    // Fail closed if the server resolved a different amount than the one on the
+    // option the customer picked. The server is the authority and charges its
+    // own figure regardless; this only stops us sending a customer off to pay
+    // something other than what they chose.
+    if (res.ok && data.success && data.url && chosen &&
+        (typeof data.depositAmount !== 'number' || Math.abs(data.depositAmount - chosen.amount) > 0.005)) {
+      throw new Error('Deposit amount did not match the selected option');
+    }
 
     if (res.ok && data.success && data.url) {
       // Remember what this checkout was for, so the "Deposit Received" bubble
@@ -639,6 +746,7 @@ async function payDeposit(id) {
       window.open(data.url, '_blank');
       btn.textContent = originalLabel;
       btn.disabled = false;
+      setDepositOptionsDisabled(id, false);
       if (status) status.textContent = 'Opened Stripe checkout in a new tab.';
     } else {
       throw new Error((data && data.error) || 'Could not start checkout');
@@ -647,6 +755,7 @@ async function payDeposit(id) {
     console.error('Deposit checkout error:', err);
     btn.textContent = originalLabel;
     btn.disabled = false;
+    setDepositOptionsDisabled(id, false);
     if (status) {
       status.textContent = 'Something went wrong — please try again or contact us on WhatsApp.';
       status.classList.add('err');
@@ -714,6 +823,7 @@ function addDepositConfirmation(sessionId) {
   if (info && info.depositId) {
     var btn = document.getElementById(info.depositId + '-btn');
     if (btn) { btn.disabled = true; btn.textContent = 'Deposit Paid'; }
+    setDepositOptionsDisabled(info.depositId, true);
     var st = document.getElementById(info.depositId + '-status');
     if (st) { st.classList.remove('err'); st.textContent = 'Payment confirmed.'; }
   }
