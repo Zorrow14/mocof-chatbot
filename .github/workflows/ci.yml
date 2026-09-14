@@ -15,13 +15,13 @@ jobs:
         uses: actions/checkout@v4
 
       # Matches the "engines" field in package.json — CI should catch a
-      # regression on the same Node version this actually deploys on
-      # (Vercel serverless functions run Node 20.x per vercel.json's
-      # implied runtime / package.json's "engines").
-      - name: Set up Node.js 20.x
+      # regression on the same Node version this actually deploys on.
+      # Vercel serverless functions run Node 24.x, read from package.json's
+      # "engines" (vercel.json has no Node pin). Keep the two in lockstep.
+      - name: Set up Node.js 24.x
         uses: actions/setup-node@v4
         with:
-          node-version: '20.x'
+          node-version: '24.x'
 
       - name: Install dependencies
         run: npm ci

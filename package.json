@@ -10,7 +10,7 @@
     "test:consistency": "node --test test/consistency.test.js"
   },
   "engines": {
-    "node": "20.x"
+    "node": "24.x"
   },
   "dependencies": {
     "stripe": "^22.5.0"
