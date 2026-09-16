@@ -149,6 +149,12 @@ export default async function handler(req, res) {
             wallHeightFt: meta.wall_height_ft || null,
             totalWallWidthFt: meta.total_wall_width_ft || null,
             wallBedModel: meta.wall_bed_model || null,
+            // The product this deposit is for, on every deposit type: the wall
+            // bed model for wall bed deposits (mirrored at charge time), the
+            // loosely-extracted label for a product reservation. Null on sessions
+            // created before this field existed, which log a blank cell rather
+            // than being guessed at.
+            productLabel: meta.product_label || null,
             grandTotal: meta.grand_total || null,
             // Blank for a fixed-amount deposit — no percentage was applied.
             depositPercent: meta.deposit_percent || null,

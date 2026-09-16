@@ -590,7 +590,21 @@ function fmtRM(n) {
 function depositScopeLabel(deposit) {
   if (deposit.depositType === 'wallbed_only') return 'Wall bed total';
   if (deposit.depositType === 'wallbed_with_cabinetry') return 'Wall bed + cabinetry total';
+  if (deposit.depositType === 'product_reservation') return 'Reserving';
   return 'Grand total';
+}
+
+/* The card's top line. A wall bed shows its order total; a product reservation
+   has no computed total — that is precisely why it takes a fixed deposit — so it
+   names the product instead of printing an empty amount. */
+function depositHeadlineHtml(deposit) {
+  var value;
+  if (typeof deposit.grandTotal === 'number') {
+    value = fmtRM(deposit.grandTotal);
+  } else {
+    value = (typeof deposit.productLabel === 'string' && deposit.productLabel) ? deposit.productLabel : 'Selected product';
+  }
+  return '<div class="deposit-line"><span>' + esc(depositScopeLabel(deposit)) + '</span><strong>' + esc(value) + '</strong></div>';
 }
 
 /* Deposit amount choice. Only options the server actually offered are
@@ -618,9 +632,13 @@ function depositPayLabel(option) {
 }
 
 function depositHtml(deposit, reqMessage, reqHistory) {
-  if (!deposit || typeof deposit.depositAmount !== 'number') return '';
-  var id = 'dep' + (++depositSeq);
+  if (!deposit) return '';
   var options = validDepositOptions(deposit);
+  // A reservation deposit has no 10% amount at all — it is options-only — so the
+  // card renders when EITHER a server option list or a legacy depositAmount is
+  // present, rather than requiring the latter.
+  if (!options && typeof deposit.depositAmount !== 'number') return '';
+  var id = 'dep' + (++depositSeq);
 
   // A response with no option list: render the original single-option card,
   // unchanged. payDeposit() then sends no choice, which the server treats as
@@ -656,7 +674,7 @@ function depositHtml(deposit, reqMessage, reqHistory) {
 
   return (
     '<div class="deposit-card">' +
-      '<div class="deposit-line"><span>' + esc(depositScopeLabel(deposit)) + '</span><strong>' + esc(fmtRM(deposit.grandTotal)) + '</strong></div>' +
+      depositHeadlineHtml(deposit) +
       '<fieldset class="deposit-options"><legend>Choose your deposit</legend>' + rows + '</fieldset>' +
       '<button class="deposit-btn" id="' + id + '-btn" onclick="payDeposit(\'' + id + '\')">' + esc(depositPayLabel(options[selected])) + '</button>' +
       '<div class="deposit-status" id="' + id + '-status"></div>' +

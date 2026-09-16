@@ -35,6 +35,12 @@ import {
     MURANO_MIN_CEILING_FT,
     computeDepositOffer,
     ALLOWED_FIXED_DEPOSITS,
+    DEPOSIT_TYPE_RESERVATION,
+    UNSPECIFIED_PRODUCT_LABEL,
+    extractProductLabel,
+    getReservationDepositOptions,
+    getDepositOptionsForBasis,
+    resolveDepositChoiceForBasis,
     DEPOSIT_OPTION_PERCENT,
     getDepositOptions,
     resolveDepositChoice,
@@ -822,7 +828,8 @@ describe('lib/sheetsLogger.js — deposit logging', () => {
         customerPhone: '+60123456789',
         stripeSessionId: 'cs_test_123',
         cabinets: 'Yes',
-        depositOptionLabel: 'Fixed RM 2,500.00'
+        depositOptionLabel: 'Fixed RM 2,500.00',
+        productLabel: 'Murano Queen Sofa'
     };
 
     function sheetsCall(calls) {
@@ -952,7 +959,7 @@ describe('lib/sheetsLogger.js — deposit logging', () => {
     });
 
     // ── logDepositToSheet: the appended row ──
-    test('appends the twelve deposit fields in the documented column order', async () => {
+    test('appends the thirteen deposit fields in the documented column order', async () => {
         await withEnv(CONFIGURED, async () => {
             const calls = stubFetch();
             await logDepositToSheet(DETAILS);
@@ -961,7 +968,7 @@ describe('lib/sheetsLogger.js — deposit logging', () => {
             assert.equal(append.options.headers.Authorization, 'Bearer test-token-xyz');
 
             const [row] = JSON.parse(append.options.body).values;
-            assert.equal(row.length, 12);
+            assert.equal(row.length, 13);
             assert.ok(!isNaN(Date.parse(row[0])), 'column A must be an ISO timestamp');
             // The three contact fields sit together (G, H, I) — Stripe Session
             // ID and Cabinets follow them, NOT the other way round.
@@ -976,7 +983,8 @@ describe('lib/sheetsLogger.js — deposit logging', () => {
                 DETAILS.customerPhone,
                 DETAILS.stripeSessionId,
                 DETAILS.cabinets,
-                DETAILS.depositOptionLabel
+                DETAILS.depositOptionLabel,
+                DETAILS.productLabel
             ]);
         });
     });
@@ -1007,12 +1015,13 @@ describe('lib/sheetsLogger.js — deposit logging', () => {
             await logDepositToSheet({ stripeSessionId: 'cs_test_only' });
 
             const [row] = JSON.parse(sheetsCall(calls).options.body).values;
-            assert.equal(row.length, 12);
+            assert.equal(row.length, 13);
             assert.deepEqual(row.slice(1, 9), ['', '', '', '', '', '', '', ''],
                 'every unset field, contact details included, must be an empty string');
             assert.equal(row[9], 'cs_test_only');
             assert.equal(row[10], '', 'a session with no cabinets metadata logs an empty cell, not "undefined"');
             assert.equal(row[11], '', 'a session with no deposit option metadata logs an empty cell, not "undefined"');
+            assert.equal(row[12], '', 'a session with no product metadata logs an empty cell, not "undefined"');
         });
     });
 
@@ -1020,14 +1029,14 @@ describe('lib/sheetsLogger.js — deposit logging', () => {
         await withEnv(CONFIGURED, async () => {
             const calls = stubFetch();
             await logDepositToSheet(DETAILS);
-            assert.match(decodeURIComponent(sheetsCall(calls).url), /Deposits!A:L/);
+            assert.match(decodeURIComponent(sheetsCall(calls).url), /Deposits!A:M/);
         });
 
         await withEnv({ ...CONFIGURED, GOOGLE_SHEETS_TAB_NAME: 'Live Deposits' }, async () => {
             const calls = stubFetch();
             await logDepositToSheet(DETAILS);
             const url = sheetsCall(calls).url;
-            assert.match(decodeURIComponent(url), /Live Deposits!A:L/);
+            assert.match(decodeURIComponent(url), /Live Deposits!A:M/);
             assert.doesNotMatch(url, /Live Deposits/, 'a tab name with a space must be URL-encoded in the request');
         });
     });
@@ -1293,7 +1302,7 @@ describe('deposit "Cabinets" Yes/No mapping', () => {
         // in Stripe metadata, the webhook reads it back, sheetsLogger writes it
         // to column I.
         const written = await captureSheetRow({ stripeSessionId: 'cs_x', cabinets: 'No' });
-        assert.equal(written.length, 12);
+        assert.equal(written.length, 13);
         assert.equal(written[10], 'No');
     });
 });
@@ -1314,7 +1323,7 @@ describe('customer contact columns (name / email / phone)', () => {
             stripeSessionId: 'cs_contact',
             cabinets: 'Yes'
         });
-        assert.equal(row.length, 12);
+        assert.equal(row.length, 13);
         assert.deepEqual(row.slice(6, 9), ['buyer@example.com', 'Aisyah Binti Rahman', '+60123456789']);
 
         // Everything after the contact block must have shifted with it.
@@ -2783,5 +2792,244 @@ describe('deposit amount options', () => {
         const { text } = buildDepositEmail({ depositTypeLabel: 'Wall Bed Only', depositPercent: '10' });
         assert.match(text, /A 10% deposit has been paid\./, 'legacy wording unchanged');
         assert.match(text, /^Deposit option: \(not recorded\)$/m);
+    });
+});
+
+
+// ── Fixed reservation deposits (any product) ────────────────────
+// Deposits used to work only for wall beds, because the amount was derived from
+// a trusted price table and most of the catalog has no structured price. A
+// reservation deposit is a FIXED amount instead, so it needs no price at all —
+// which is what these pin: the amount comes only from ALLOWED_FIXED_DEPOSITS,
+// and the product label, however it is guessed, can never change it.
+describe('product reservation deposits', () => {
+
+    const SOFA_HISTORY = [
+        { role: 'user', content: 'Do you have the Solaris Sofa?' },
+        { role: 'assistant', content: 'Yes — the Solaris Sofa is one of our premium sofas.' }
+    ];
+    const SOFA_MESSAGE = 'I want the Solaris Sofa';
+    const RESERVATION_IDS = ALLOWED_FIXED_DEPOSITS.map(a => 'fixed_' + a);
+
+    function reservationBasis() {
+        const basis = getDepositBasisFromContext(SOFA_MESSAGE, SOFA_HISTORY);
+        assert.ok(basis, 'fixture should produce a deposit basis');
+        return basis;
+    }
+
+    test('wanting a non-wall-bed product produces a reservation basis with no total', () => {
+        const basis = reservationBasis();
+        assert.equal(basis.type, DEPOSIT_TYPE_RESERVATION);
+        assert.equal(basis.total, null, 'a reservation is decoupled from price on purpose');
+        assert.equal(basis.wallBedModelLabel, null);
+        assert.equal(basis.productLabel, 'Solaris Sofa');
+    });
+
+    // Same gate as the wall bed path: asking about a product is not asking to buy it.
+    test('asking about a product without buy intent offers nothing', () => {
+        assert.equal(getDepositBasisFromContext('Do you have the Solaris Sofa?', SOFA_HISTORY), null);
+        assert.equal(computeDepositOffer('How much is the Solaris Sofa?', SOFA_HISTORY), null);
+    });
+
+    // ── Only ALLOWED_FIXED_DEPOSITS may be charged ──
+    test('a reservation accepts every allowed fixed amount, taken from the constant', () => {
+        const basis = reservationBasis();
+        for (const amount of ALLOWED_FIXED_DEPOSITS) {
+            const r = resolveDepositChoiceForBasis(basis, 'fixed_' + amount);
+            assert.equal(r.ok, true, 'must accept fixed_' + amount);
+            assert.equal(r.option.kind, 'fixed');
+            assert.equal(r.option.amount, amount);
+        }
+    });
+
+    test('a reservation rejects any amount not in ALLOWED_FIXED_DEPOSITS', () => {
+        const basis = reservationBasis();
+        const bogus = ['percent', 'fixed_1000', 'fixed_2000', 'fixed_5000', 'fixed_1', 'fixed_99999',
+            1500, '1500', 'FIXED_1500', 'fixed_1500 ', '', '__proto__', ['fixed_1500'], { amount: 1500 }];
+        for (const choice of bogus) {
+            const r = resolveDepositChoiceForBasis(basis, choice);
+            assert.equal(r.ok, false, 'must reject ' + JSON.stringify(choice));
+            assert.equal(r.option, undefined, 'a rejection must carry no amount to charge');
+        }
+    });
+
+    // There is no percentage to fall back on, so a missing choice is refused
+    // rather than charged an amount the customer never picked.
+    test('a reservation with no choice at all is rejected, not defaulted', () => {
+        const basis = reservationBasis();
+        for (const absent of [undefined, null]) {
+            assert.equal(resolveDepositChoiceForBasis(basis, absent).ok, false);
+        }
+    });
+
+    test('the offered options are exactly the four fixed amounts, with no percentage', () => {
+        const offer = computeDepositOffer(SOFA_MESSAGE, SOFA_HISTORY);
+        assert.ok(offer);
+        assert.equal(offer.depositType, DEPOSIT_TYPE_RESERVATION);
+        assert.deepEqual(offer.depositOptions.map(o => o.id), RESERVATION_IDS);
+        assert.ok(offer.depositOptions.every(o => o.kind === 'fixed'), 'no percentage option exists here');
+        assert.equal(offer.grandTotal, null);
+        assert.equal(offer.depositAmount, null);
+        assert.equal(offer.depositPercent, null);
+        assert.equal(offer.productLabel, 'Solaris Sofa');
+    });
+
+    // ── End to end at the charge step ──
+    test('buildDepositCharge charges the chosen fixed amount and records the product', () => {
+        const charge = buildDepositCharge(SOFA_MESSAGE, SOFA_HISTORY, 'fixed_2500');
+        assert.equal(charge.ok, true);
+        assert.equal(charge.depositAmount, 2500);
+        assert.equal(charge.unitAmountCents, 250000);
+        assert.equal(charge.metadata.deposit_type, DEPOSIT_TYPE_RESERVATION);
+        assert.equal(charge.metadata.product_label, 'Solaris Sofa');
+        assert.equal(charge.metadata.grand_total, '', 'a reservation has no order total to record');
+        assert.equal(charge.metadata.deposit_percent, '', 'no percentage was applied');
+        assert.equal(charge.metadata.cabinets, 'No');
+        assert.equal(charge.metadata.wall_bed_model, '');
+        assert.match(charge.productName, /Reservation Deposit — Solaris Sofa/);
+    });
+
+    test('buildDepositCharge refuses a reservation amount outside the allow-list', () => {
+        for (const bogus of ['fixed_2000', 'percent', 1500, undefined]) {
+            const charge = buildDepositCharge(SOFA_MESSAGE, SOFA_HISTORY, bogus);
+            assert.equal(charge.ok, false, 'must reject ' + JSON.stringify(bogus));
+            assert.equal(charge.status, 400);
+            assert.equal(charge.unitAmountCents, undefined);
+            assert.equal(charge.metadata, undefined);
+        }
+    });
+
+    // ── Product identification is loose, and never gates the charge ──
+    test('an unidentifiable product still reserves, logged as "(unspecified product)"', () => {
+        const charge = buildDepositCharge('I will take it', [], 'fixed_1500');
+        assert.equal(charge.ok, true, 'an unknown product must not block a fixed deposit');
+        assert.equal(charge.depositAmount, 1500);
+        assert.equal(charge.unitAmountCents, 150000);
+        assert.equal(charge.metadata.product_label, UNSPECIFIED_PRODUCT_LABEL);
+        assert.equal(UNSPECIFIED_PRODUCT_LABEL, '(unspecified product)');
+    });
+
+    test('extractProductLabel prefers a named product, then a category, then the placeholder', () => {
+        assert.equal(extractProductLabel('I want the Solaris Sofa', []), 'Solaris Sofa');
+        assert.equal(extractProductLabel('ok', [{ role: 'assistant', content: 'The Ottoman Bed is available.' }]), 'Ottoman Bed');
+        // Generic wording still yields something more useful than the placeholder.
+        assert.match(extractProductLabel('I want to reserve a sofa', []), /sofa/i);
+        assert.notEqual(extractProductLabel('I want to reserve a duvet set', []), UNSPECIFIED_PRODUCT_LABEL);
+        assert.equal(extractProductLabel('I will take it', []), UNSPECIFIED_PRODUCT_LABEL);
+    });
+
+    test('the most recently mentioned product is the one recorded', () => {
+        const label = extractProductLabel('I want that one', [
+            { role: 'user', content: 'tell me about the Solaris Sofa' },
+            { role: 'assistant', content: 'It is one of our premium sofas.' },
+            { role: 'user', content: 'what about the Ottoman Bed?' },
+            { role: 'assistant', content: 'The Ottoman Bed is also available.' }
+        ]);
+        assert.equal(label, 'Ottoman Bed');
+    });
+
+    // ── The wall bed flows must not regress ──
+    test('wall bed deposits still offer 10% plus the fixed amounts', () => {
+        const offer = computeDepositOffer('10ft', [
+            { role: 'user', content: 'I want a Murano Queen Sofa with side cabinets around it, how much in total?' },
+            { role: 'assistant', content: 'Sure! What is the total height of the wall, in feet?' },
+            { role: 'user', content: '11ft' },
+            { role: 'assistant', content: 'Got it. What is the total width of the wall, in feet?' }
+        ]);
+        assert.ok(offer);
+        assert.equal(offer.depositType, DEPOSIT_TYPE_WITH_CABINETRY);
+        assert.notEqual(offer.depositType, DEPOSIT_TYPE_RESERVATION);
+        assert.equal(offer.grandTotal, 38300.11);
+        assert.equal(offer.depositAmount, 3830.01);
+        assert.deepEqual(offer.depositOptions.map(o => o.id), ['percent', ...RESERVATION_IDS]);
+        assert.equal(offer.productLabel, 'Murano Queen Sofa', 'the model is mirrored for the Product column');
+    });
+
+    test('a priced wall bed with buy intent is still wallbed_only, not a reservation', () => {
+        const basis = getDepositBasisFromContext('I want the Murano Single', [
+            { role: 'user', content: 'Is there a Murano Single?' },
+            { role: 'assistant', content: 'Yes — the Murano Single is RM 16,083.40 retail | RM 12,062.55 sale.' }
+        ]);
+        assert.ok(basis);
+        assert.equal(basis.type, DEPOSIT_TYPE_WALLBED_ONLY);
+        assert.equal(basis.productLabel, 'Murano Single');
+        assert.ok(basis.total > 0, 'wall bed deposits keep their computed total');
+    });
+
+    // A customer mid-cabinetry must not be handed a cheap fixed reservation
+    // instead of the combined quote being assembled.
+    test('a cabinetry conversation in progress is not downgraded to a reservation', () => {
+        const midFlow = [
+            { role: 'user', content: 'Murano Queen with surround cabinets please' },
+            { role: 'assistant', content: 'What is the total height of the wall, in feet?' }
+        ];
+        assert.equal(getDepositBasisFromContext('I want it', midFlow), null);
+    });
+
+    // ── Type labelling and the Sheet row ──
+    test('the reservation type has a label and a Cabinets value, like the others', () => {
+        assert.equal(depositTypeLabel(DEPOSIT_TYPE_RESERVATION), 'Product Reservation');
+        assert.equal(depositIncludesCabinets(DEPOSIT_TYPE_RESERVATION), 'No');
+    });
+
+    test('a reservation row carries the product in column M and the right type', async () => {
+        const row = await captureSheetRow({
+            stripeSessionId: 'cs_reservation',
+            cabinets: depositIncludesCabinets(DEPOSIT_TYPE_RESERVATION),
+            depositOptionLabel: 'Fixed RM 2,500.00',
+            depositAmountPaid: '2500.00',
+            productLabel: 'Solaris Sofa'
+        });
+        assert.equal(row.length, 13, 'the row must be exactly as wide as the A:M range');
+        assert.equal(row[12], 'Solaris Sofa', 'column M holds the product');
+        assert.equal(row[2], '', 'column C is not repurposed — it stays the wall bed model');
+        assert.equal(row[5], '2500.00');
+        assert.equal(row[10], 'No');
+        assert.equal(row[11], 'Fixed RM 2,500.00');
+    });
+
+    test('a wall bed row mirrors its model into the product column', async () => {
+        const row = await captureSheetRow({
+            stripeSessionId: 'cs_wallbed',
+            wallBedModel: 'Murano Queen Sofa',
+            productLabel: 'Murano Queen Sofa',
+            cabinets: 'Yes'
+        });
+        assert.equal(row[2], 'Murano Queen Sofa');
+        assert.equal(row[12], 'Murano Queen Sofa', 'Product means "the product" on every row');
+    });
+
+    // ── Notification ──
+    test('the email names the product and the reservation type', () => {
+        const { subject, text, html } = buildDepositEmail({
+            depositTypeLabel: depositTypeLabel(DEPOSIT_TYPE_RESERVATION),
+            depositType: DEPOSIT_TYPE_RESERVATION,
+            productLabel: 'Solaris Sofa',
+            depositOptionKind: 'fixed',
+            depositOptionLabel: 'Fixed RM 2,500.00',
+            depositAmountPaid: '2500.00',
+            quoteRef: 'MQS-20260916-AB12'
+        });
+        assert.equal(subject, 'New Deposit — Product Reservation (Solaris Sofa)');
+        assert.match(text, /^Deposit type: Product Reservation$/m);
+        assert.match(text, /^Product: Solaris Sofa$/m);
+        assert.match(text, /not applicable — fixed reservation deposit/);
+        assert.doesNotMatch(text, /Grand total: RM \?/, 'must not imply a total exists');
+        assert.match(html, /Solaris Sofa/);
+        assert.match(html, /Product/);
+    });
+
+    test('the email still names the wall bed model for wall bed deposits', () => {
+        const { subject, text } = buildDepositEmail({
+            depositTypeLabel: 'Wall Bed Only',
+            wallBedModel: 'Murano Queen',
+            productLabel: 'Murano Queen',
+            depositPercent: '10',
+            grandTotal: '14371.55',
+            depositAmountPaid: '1437.16'
+        });
+        assert.equal(subject, 'New Deposit — Wall Bed Only (Murano Queen)');
+        assert.match(text, /Wall bed model: Murano Queen/);
+        assert.match(text, /Grand total: RM 14371\.55/);
     });
 });

@@ -96,7 +96,7 @@ you're setting up a similar Google API integration elsewhere.
 ## The Sheet's columns
 
 `logDepositToSheet()` appends one row per confirmed deposit into the range
-`<tab>!A:L`. Use this as the header row when creating or updating the sheet —
+`<tab>!A:M`. Use this as the header row when creating or updating the sheet —
 the columns must be in exactly this order:
 
 | Col | Header | Value |
@@ -113,6 +113,7 @@ the columns must be in exactly this order:
 | J | Stripe Session ID | `cs_...` |
 | K | Cabinets | `Yes` / `No` |
 | L | Deposit Option | Chosen on the deposit card: `10% of total`, or `Fixed RM 1,500.00` / `2,500.00` / `3,500.00` / `4,500.00`. Blank for sessions from before options existed |
+| M | Product | What the deposit is for, on every row. Wall bed rows mirror column C; product reservations carry their own label, e.g. `Ottoman Bed`, or `(unspecified product)` if none could be identified |
 
 Columns G–I are collected by Stripe's hosted checkout page, not by the chat
 widget — the widget never asks for contact details. Any of them can be blank

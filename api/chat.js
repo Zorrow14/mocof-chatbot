@@ -16,7 +16,7 @@ import { getWarrantyKnowledge } from '../knowledge/warranty.js';
 import { getBasicFurnitureKnowledge } from '../knowledge/basicfurniture.js';
 import { getBedsheetKnowledge } from '../knowledge/bedsheets.js';
 import { getCabinetryKnowledge, calculateCabinetPrice, SIDE_CABINET_MAX_HEIGHT_FT, resolveSideCabinetHeightFt } from '../knowledge/cabinetry.js';
-import { getRelevantImages } from '../knowledge/productImages.js';
+import { getRelevantImages, PRODUCT_IMAGES } from '../knowledge/productImages.js';
 
 // Gemini's OpenAI-compatible endpoint -- same request/response shape as the
 // Groq endpoint this replaced, so the rest of this file barely had to change.
@@ -267,6 +267,11 @@ RESERVATION DEPOSIT:
   answering an availability question with a payment prompt reads as a hard sell.
 - You do not need to wait for cabinetry to come up — a plain wall bed on its own can
   be reserved, once the customer has shown they want it.
+- Wall beds are not the only thing that can be reserved. If the customer says they want
+  to buy or reserve any other product — a sofa, a table, a bedding set — invite them in
+  exactly the same way. That deposit is a FIXED reservation amount they choose on the
+  card, not a percentage, so never quote a percentage for it and never state an RM
+  figure yourself; the card shows the amounts.
 - Only do this once a specific model is settled. Do NOT invite a deposit while still
   narrowing options down (e.g. you've only asked about ceiling height and room purpose,
   or you've just listed several models to choose between) — there is nothing definite to
@@ -1146,6 +1151,12 @@ const DEPOSIT_OPTION_KIND_FIXED = 'fixed';
 // say and stops matching every row already logged.
 const DEPOSIT_TYPE_WITH_CABINETRY = 'wallbed_with_cabinetry';
 const DEPOSIT_TYPE_WALLBED_ONLY   = 'wallbed_only';
+// A deposit to reserve any OTHER product. Deliberately carries no price: most
+// of the catalog has no structured price table, so this type takes a fixed
+// amount from ALLOWED_FIXED_DEPOSITS instead of a percentage of a total. That
+// is what lets a customer reserve a sofa or a duvet set without the server ever
+// having to know what it costs.
+const DEPOSIT_TYPE_RESERVATION    = 'product_reservation';
 
 // The Google Sheet's "Cabinets" column is a plain Yes/No so MOCOF can read a
 // deposit's scope at a glance. Derived from the deposit type rather than
@@ -1159,6 +1170,10 @@ const DEPOSIT_TYPE_WALLBED_ONLY   = 'wallbed_only';
 function depositIncludesCabinets(depositType) {
     if (depositType === DEPOSIT_TYPE_WITH_CABINETRY) return 'Yes';
     if (depositType === DEPOSIT_TYPE_WALLBED_ONLY) return 'No';
+    // A product reservation covers no cabinetry — "No" is the accurate answer,
+    // not a guess. The '' below still stands for any type this build genuinely
+    // doesn't know about.
+    if (depositType === DEPOSIT_TYPE_RESERVATION) return 'No';
     return '';
 }
 
@@ -1174,6 +1189,7 @@ function depositIncludesCabinets(depositType) {
 function depositTypeLabel(depositType) {
     if (depositType === DEPOSIT_TYPE_WITH_CABINETRY) return 'Wall Bed + Cabinetry';
     if (depositType === DEPOSIT_TYPE_WALLBED_ONLY) return 'Wall Bed Only';
+    if (depositType === DEPOSIT_TYPE_RESERVATION) return 'Product Reservation';
     return '';
 }
 
@@ -1297,6 +1313,59 @@ function cabinetryEstimatePresented(history) {
     return history.some(t => t && t.role === 'assistant' && t.content && /grand\s*total/i.test(t.content));
 }
 
+// ── Product identification for reservation deposits ─────────────
+// LOGGING ONLY. This label never influences the amount charged: a reservation
+// deposit is a fixed sum from ALLOWED_FIXED_DEPOSITS whatever this returns, or
+// even if it returns nothing recognisable. That is the point of the fixed-amount
+// design — most of the catalog has no structured price, so nothing here has to
+// be reliable enough to bill against. A loose guess is fine; a wrong charge
+// would not be.
+//
+// Labels come from PRODUCT_IMAGES rather than a new table: it already maps the
+// catalog's patterns to display names ("Solaris Sofa", "Ottoman Bed"), its order
+// already puts specific variants ahead of generic ones, and reusing it means a
+// product added there is recognised here for free.
+const PRODUCT_CATEGORY_PATTERNS = [
+    { pattern: /sofa\s*bed/i, label: 'Sofa bed (unspecified model)' },
+    { pattern: /bedsheet|bed\s*sheet|duvet|bedding|quilt|comforter|pillow|bolster|towel|bath\s*mat/i, label: 'Bedding / bath (unspecified item)' },
+    { pattern: /wardrobe|closet/i, label: 'Wardrobe (unspecified model)' },
+    { pattern: /kitchen/i, label: 'Kitchen cabinetry (unspecified)' },
+    { pattern: /dining|table|desk/i, label: 'Table (unspecified model)' },
+    { pattern: /mattress/i, label: 'Mattress (unspecified model)' },
+    { pattern: /cushion/i, label: 'Cushion (unspecified model)' },
+    { pattern: /chair/i, label: 'Chair (unspecified model)' },
+    { pattern: /sofa/i, label: 'Sofa (unspecified model)' },
+    { pattern: /wall\s*bed|wallbed|murphy\s*bed|murano|gioco/i, label: 'Wall bed (unspecified model)' }
+];
+
+const UNSPECIFIED_PRODUCT_LABEL = '(unspecified product)';
+
+function extractProductLabel(message, history) {
+    const priorTurns = Array.isArray(history) ? history.slice(-10) : [];
+    const turns = [...priorTurns, { role: 'user', content: message }];
+
+    // Newest turn first: when a conversation moves from one product to another,
+    // the most recent mention is the one being reserved. Both roles count — the
+    // assistant is usually the one to name a product in full.
+    for (let i = turns.length - 1; i >= 0; i--) {
+        const t = turns[i];
+        if (!t || typeof t.content !== 'string') continue;
+        const match = PRODUCT_IMAGES.find(p => p.pattern.test(t.content));
+        if (match) return match.label;
+    }
+
+    // No specific product — fall back to a category, which is still more useful
+    // in the Sheet than nothing.
+    for (let i = turns.length - 1; i >= 0; i--) {
+        const t = turns[i];
+        if (!t || typeof t.content !== 'string') continue;
+        const category = PRODUCT_CATEGORY_PATTERNS.find(c => c.pattern.test(t.content));
+        if (category) return category.label;
+    }
+
+    return UNSPECIFIED_PRODUCT_LABEL;
+}
+
 function getDepositBasisFromContext(message, history) {
     // A wall bed that cannot physically be installed at this customer's ceiling
     // must never be taken payment for, on either path. This check was
@@ -1324,6 +1393,9 @@ function getDepositBasisFromContext(message, history) {
             return {
                 type: DEPOSIT_TYPE_WITH_CABINETRY,
                 wallBedModelLabel: est.wallBedModelLabel,
+                // Mirrors the model so the Sheet's Product column means "the
+                // product" on every row, not just reservation rows.
+                productLabel: est.wallBedModelLabel,
                 total: est.grandTotal,
                 heightFt: est.heightFt,
                 totalWidthFt: est.totalWidthFt
@@ -1348,6 +1420,30 @@ function getDepositBasisFromContext(message, history) {
 
     const pricedModel = extractSelectedWallBedPricing(history, message);
     if (!pricedModel) {
+        // No priced wall bed — but the customer may be reserving something else
+        // entirely (a sofa, a bedding set), or a wall bed this build has no price
+        // for. Those take a FIXED reservation deposit, which needs no price table
+        // at all, so the catalog's lack of structured prices stops being the
+        // reason a customer can't put money down.
+        //
+        // Still gated on purchase intent, exactly like the wall-bed path above:
+        // asking about a sofa must no more produce a payment button than asking
+        // about a wall bed does.
+        if (hasPurchaseIntent(message, history)) {
+            return {
+                type: DEPOSIT_TYPE_RESERVATION,
+                wallBedModelLabel: null,
+                // Loose and logging-only — see extractProductLabel(). The amount
+                // is fixed, so an imperfect label cannot mis-bill anyone.
+                productLabel: extractProductLabel(message, history),
+                // No computed order total exists for this type. That is the
+                // whole reason it takes a fixed amount.
+                total: null,
+                heightFt: null,
+                totalWidthFt: null
+            };
+        }
+
         // Quiet unless a wall bed genuinely came up — see hasWallBedContext().
         if (hasWallBedContext(message, history)) {
             logDepositSuppressed('no specific wall bed model resolved', message, history);
@@ -1371,6 +1467,8 @@ function getDepositBasisFromContext(message, history) {
     return {
         type: DEPOSIT_TYPE_WALLBED_ONLY,
         wallBedModelLabel: pricedModel.label,
+        // Mirrored, as on the cabinetry path above.
+        productLabel: pricedModel.label,
         total: round2(pricedModel.sale),
         heightFt: null,
         totalWidthFt: null
@@ -1385,17 +1483,25 @@ function computeDepositOffer(message, history) {
     const basis = getDepositBasisFromContext(message, history);
     if (!basis) return null;
 
+    const isReservation = basis.type === DEPOSIT_TYPE_RESERVATION;
+
     return {
         depositType: basis.type,
         wallBedModelLabel: basis.wallBedModelLabel,
-        grandTotal: basis.total,
-        // The percentage deposit, unchanged — still the card's default choice.
-        depositPercent: DEPOSIT_PERCENT,
-        depositAmount: round2(basis.total * DEPOSIT_PERCENT / 100),
+        // What the card names at the top. Present for every type, because wall
+        // bed bases mirror their model into it.
+        productLabel: basis.productLabel || null,
+        // Null for a reservation — there is no computed order total, which is
+        // exactly why it takes a fixed deposit.
+        grandTotal: isReservation ? null : basis.total,
+        // The percentage deposit, unchanged — still the card's default choice
+        // for a wall bed. A reservation has no total to take a percentage of.
+        depositPercent: isReservation ? null : DEPOSIT_PERCENT,
+        depositAmount: isReservation ? null : round2(basis.total * DEPOSIT_PERCENT / 100),
         // Everything the customer may pick between, for display only. Nothing
         // here is trusted later: api/create-deposit.js receives just the chosen
         // option's id and rebuilds this same list server-side before charging.
-        depositOptions: getDepositOptions(basis.total)
+        depositOptions: getDepositOptionsForBasis(basis)
     };
 }
 
@@ -1431,6 +1537,30 @@ function getDepositOptions(grandTotal) {
     return options;
 }
 
+// The options for a RESERVATION deposit: the fixed amounts, and nothing else.
+// No percentage, because there is no total to take a percentage of — and no
+// "below the total" filter for the same reason. This list IS the allow-list for
+// that deposit type, built from the same ALLOWED_FIXED_DEPOSITS constant rather
+// than a second copy that could drift from it.
+function getReservationDepositOptions() {
+    return ALLOWED_FIXED_DEPOSITS.map(fixed => ({
+        id: `fixed_${fixed}`,
+        kind: DEPOSIT_OPTION_KIND_FIXED,
+        amount: fixed,
+        percent: null,
+        label: `Fixed ${formatRM(fixed)}`
+    }));
+}
+
+// The single place that decides which option list a basis gets. Both the card
+// and the charge go through it, so a product can never be offered one set of
+// amounts and billed against another.
+function getDepositOptionsForBasis(basis) {
+    if (!basis) return [];
+    if (basis.type === DEPOSIT_TYPE_RESERVATION) return getReservationDepositOptions();
+    return getDepositOptions(basis.total);
+}
+
 // Turns the client's raw choice into an amount the server is willing to charge.
 // The client value is only ever used as a lookup key: it must be a string that
 // EXACTLY equals the id of an option getDepositOptions() just generated for
@@ -1446,13 +1576,35 @@ function getDepositOptions(grandTotal) {
 // quietly downgraded to the default: a customer who picked RM 1,500 must not be
 // silently charged 10% instead.
 function resolveDepositChoice(grandTotal, depositOption) {
-    const options = getDepositOptions(grandTotal);
+    return resolveChoiceFromOptions(getDepositOptions(grandTotal), depositOption, DEPOSIT_OPTION_PERCENT);
+}
+
+// The same validation for a reservation deposit, against ITS allow-list. Two
+// differences, both deliberate: the options come from ALLOWED_FIXED_DEPOSITS
+// only, and there is no default option — a reservation has no percentage to
+// fall back on, so an ABSENT choice is rejected rather than charged an amount
+// nobody picked. No client can reach that path anyway (reservations postdate the
+// widget that omitted the field), so rejecting costs nothing and guesses nothing.
+function resolveDepositChoiceForBasis(basis, depositOption) {
+    if (!basis) return { ok: false, reason: 'no deposit basis' };
+    if (basis.type === DEPOSIT_TYPE_RESERVATION) {
+        return resolveChoiceFromOptions(getReservationDepositOptions(), depositOption, null);
+    }
+    return resolveDepositChoice(basis.total, depositOption);
+}
+
+// Shared by both entry points above, so the two deposit families cannot drift
+// into different validation rules. The client value is only ever a lookup key
+// into a list the server just built.
+function resolveChoiceFromOptions(options, depositOption, defaultOptionId) {
     if (options.length === 0) {
         return { ok: false, reason: 'no valid grand total to take a deposit against' };
     }
 
     if (depositOption === undefined || depositOption === null) {
-        return { ok: true, option: options.find(o => o.id === DEPOSIT_OPTION_PERCENT) };
+        const fallback = defaultOptionId ? options.find(o => o.id === defaultOptionId) : null;
+        if (!fallback) return { ok: false, reason: 'a deposit option must be chosen' };
+        return { ok: true, option: fallback };
     }
 
     if (typeof depositOption !== 'string') {
@@ -1488,7 +1640,11 @@ function buildDepositCharge(message, history, depositOption) {
     }
 
     const grandTotal = basis.total;
-    const choice = resolveDepositChoice(grandTotal, depositOption);
+    const isReservation = basis.type === DEPOSIT_TYPE_RESERVATION;
+    // A reservation validates against ALLOWED_FIXED_DEPOSITS; a wall bed against
+    // the percentage plus the fixed amounts below its total. Either way the
+    // amount charged comes from the server's own option object, never the client.
+    const choice = resolveDepositChoiceForBasis(basis, depositOption);
     if (!choice.ok) {
         return {
             ok: false,
@@ -1504,12 +1660,13 @@ function buildDepositCharge(message, history, depositOption) {
     // What the customer sees on the Stripe Checkout page. A wall-bed-only
     // deposit must not say "+ Cabinetry" — that would describe scope they
     // aren't paying for.
+    const productLabel = basis.productLabel || basis.wallBedModelLabel || UNSPECIFIED_PRODUCT_LABEL;
     const scopeName = basis.type === DEPOSIT_TYPE_WITH_CABINETRY
         ? `${basis.wallBedModelLabel} + Cabinetry`
-        : basis.wallBedModelLabel;
+        : (isReservation ? productLabel : basis.wallBedModelLabel);
     const productName = option.kind === DEPOSIT_OPTION_KIND_PERCENT
         ? `${option.percent}% Deposit — ${scopeName}`
-        : `${formatRM(option.amount)} Deposit — ${scopeName}`;
+        : `${formatRM(option.amount)} ${isReservation ? 'Reservation Deposit' : 'Deposit'} — ${scopeName}`;
 
     return {
         ok: true,
@@ -1531,8 +1688,13 @@ function buildDepositCharge(message, history, depositOption) {
         metadata: {
             cabinets: depositIncludesCabinets(basis.type),
             deposit_type: basis.type,
-            wall_bed_model: basis.wallBedModelLabel,
-            grand_total: grandTotal.toFixed(2),
+            wall_bed_model: basis.wallBedModelLabel || '',
+            // The product this deposit reserves, on EVERY type — wall bed bases
+            // mirror their model into it. Stripe metadata values must be
+            // strings, hence the '' fallbacks here and above.
+            product_label: productLabel,
+            // Empty for a reservation: there is no computed order total.
+            grand_total: typeof grandTotal === 'number' ? grandTotal.toFixed(2) : '',
             deposit_percent: option.kind === DEPOSIT_OPTION_KIND_PERCENT ? String(option.percent) : '',
             deposit_option: option.id,
             deposit_option_kind: option.kind,
@@ -1620,7 +1782,13 @@ export {
     DEPOSIT_OPTION_PERCENT,
     getDepositOptions,
     resolveDepositChoice,
-    buildDepositCharge
+    buildDepositCharge,
+    DEPOSIT_TYPE_RESERVATION,
+    UNSPECIFIED_PRODUCT_LABEL,
+    extractProductLabel,
+    getReservationDepositOptions,
+    getDepositOptionsForBasis,
+    resolveDepositChoiceForBasis
 };
 
 // ── Main handler ──────────────────────────────────────────────

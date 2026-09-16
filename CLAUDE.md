@@ -74,10 +74,11 @@ Two consequences of that, both easy to get wrong:
 
 `getDepositBasisFromContext()` is the **single** definition of whether a deposit is payable and on what amount. Both the chat response's offer (`computeDepositOffer()`) and the actual Stripe charge (`api/create-deposit.js`) call it and nothing else — that's what stops the quoted and charged amounts from diverging. It returns `null` or `{ type, wallBedModelLabel, total, heightFt, totalWidthFt }`.
 
-Two paths, in priority order:
+Three paths, in priority order:
 
 1. **`wallbed_with_cabinetry`** — the combined grand total. Gating mirrors `buildCabinetryEstimateBlock()` exactly (same price-intent check, same non-blocked-full-`grandTotal` requirement), so the button can't appear ahead of or instead of the price text. Keep those two in lockstep.
 2. **`wallbed_only`** — the model's sale price alone. Gated on `hasCabinetryIntent()` being **false**, not merely on the cabinetry estimate being absent: mid-cabinetry-flow the estimate is legitimately missing while measurements are collected, and falling through there would offer payment for less than the quote being assembled.
+3. **`product_reservation`** — a FIXED amount from `ALLOWED_FIXED_DEPOSITS`, for anything else in the catalog (and for a wall bed this build has no price for). Reached only when no priced wall bed resolves *and* `hasPurchaseIntent()` is true, so asking about a sofa no more produces a payment button than asking about a wall bed does. It carries `total: null` on purpose: most of the catalog has no structured price, and decoupling the deposit from price is what lets a customer reserve a sofa or a bedding set at all. Because there is no total, there is no percentage option and no "below the total" filter — `getReservationDepositOptions()` *is* the allow-list. An absent choice is rejected here rather than defaulting, since there is no percentage to fall back on.
 
 **`hasPriceIntent()` gates path 1 only.** A bed-only deposit surfaces as soon as a specific model is settled — the customer needn't ask "how much" first. That's safe here because the bed's sale price is a fixed catalog figure the bot has already quoted and the deposit card displays the total it charges against; a cabinetry grand total is assembled over several turns, so that path still waits for an explicit price question. Moving the price-intent check back to the top of the function re-narrows the trigger; dropping it from path 1 lets the button precede the estimate.
 
@@ -101,11 +102,11 @@ The `type` on the returned basis drives three things: the widget's deposit-card 
 
 `logDepositToSheet()` appends one row per confirmed deposit into a fixed range. Column order is a **stored data format** — rows already in the Sheet are written this way, so add new columns at the *end* and widen the range to match. The Sheets API silently truncates a row longer than its range rather than erroring, so a mismatch loses data quietly.
 
-| A | B | C | D | E | F | G | H | I | J | K | L |
-|---|---|---|---|---|---|---|---|---|---|---|---|
-| Timestamp | Quote Ref | Wall Bed Model | Grand Total | Deposit % | Deposit Paid | Customer Email | Customer Name | Customer Phone | Stripe Session ID | Cabinets | Deposit Option |
+| A | B | C | D | E | F | G | H | I | J | K | L | M |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| Timestamp | Quote Ref | Wall Bed Model | Grand Total | Deposit % | Deposit Paid | Customer Email | Customer Name | Customer Phone | Stripe Session ID | Cabinets | Deposit Option | Product |
 
-Range: `<tab>!A:L`. The same table (with per-column value notes) is in [GOOGLE_SHEETS_CREDENTIALS.md](GOOGLE_SHEETS_CREDENTIALS.md), since that's what you follow when creating the sheet's header row — keep both in sync.
+Range: `<tab>!A:M`. The same table (with per-column value notes) is in [GOOGLE_SHEETS_CREDENTIALS.md](GOOGLE_SHEETS_CREDENTIALS.md), since that's what you follow when creating the sheet's header row — keep both in sync.
 
 **Columns G–I come from Stripe, not the widget.** `api/create-deposit.js` sets `phone_number_collection: { enabled: true }` and `billing_address_collection: 'required'` on the Checkout Session; the webhook reads them back off `session.customer_details`. Stripe has no standalone "collect name" switch — `customer_details.name` is filled from the billing-details form, which is why address collection is required rather than relying on the card form's cardholder-name field. That field doesn't exist for FPX, a payment method this session accepts, so the name would silently be blank for those customers otherwise. Any of G–I can still be blank if Stripe captured nothing.
 
@@ -116,6 +117,8 @@ That value is derived, never tracked separately: `depositIncludesCabinets()` in 
 Sessions created before the `cabinets` field existed log an empty cell rather than being guessed at. `test/consistency.test.js` pins the column order, the row width against the range, and the Yes/No mapping.
 
 **Deposit Option** (L) is the option the customer chose on the card — `10% of total` or `Fixed RM 1,500.00` — written by `buildDepositCharge()` into metadata as `deposit_option_label` at charge time. For a fixed-amount deposit **Deposit %** (E) is blank rather than claiming a percentage that wasn't applied. **Deposit Paid** (F) is always Stripe's own `amount_total`, whichever option was chosen. Sessions created before options existed leave L empty.
+
+**Product** (M) is what the deposit is for, on **every** row. Wall bed deposits deliberately mirror column C into it rather than leaving it blank, so the column can be read on its own; a `product_reservation` has no column C and carries the label `extractProductLabel()` found. That label is **logging only** — it comes from loose pattern matching over the conversation and never influences the amount charged, which is fixed. An unidentifiable product logs `(unspecified product)` rather than blocking the deposit. C is *not* repurposed: it still holds the wall bed model and nothing else. Note M needs its `Product` header added to the live Sheet by hand — the logger writes by position and never writes headers.
 
 Adding a column: append at the **end** and widen the range in the same edit. The contact fields (H, I) were inserted mid-row instead, which moved Stripe Session ID from H to J — any row written before that change is misaligned from column H onward. That was acceptable only because the integration hadn't logged anything yet; assume it isn't next time.
 

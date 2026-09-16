@@ -135,10 +135,11 @@ Beyond the price guardrail's fallback, the system prompt tells the bot to offer 
 
 ### Deposit flow
 
-The widget can show a deposit card in two situations:
+The widget can show a deposit card in three situations:
 
 - **Wall bed + cabinetry** — the combined grand total, once a full estimate has been worked out and its price revealed.
 - **Wall bed only** — the model's sale price alone, once the customer says they want that specific bed.
+- **Product reservation** — a fixed amount to reserve anything else in the catalog (a sofa, a table, a bedding set), once the customer says they want it. This one carries no order total at all, which is what lets it work for products that have no structured price.
 
 Both are decided by a single function, `getDepositBasisFromContext()` in `api/chat.js`. The chat response's card and the actual Stripe charge both read from it and nothing else, so the quoted and charged amounts cannot diverge.
 
@@ -164,21 +165,25 @@ After payment, `public/deposit-success.html` confirms the deposit and — when t
 
 ### Deposit amount options
 
-The deposit card lets the customer choose how much to put down: **10% of the total** (the default), or a fixed **RM 1,500 / RM 2,500 / RM 3,500 / RM 4,500**. A fixed amount at or above the order's total is not offered.
+The deposit card lets the customer choose how much to put down. For a wall bed: **10% of the total** (the default), or a fixed **RM 1,500 / RM 2,500 / RM 3,500 / RM 4,500**, excluding any fixed amount at or above the order's total.
+
+For a **product reservation** the fixed amounts are the only choices — there is no percentage, because there is no computed total to take a percentage of. That is the whole point: most of the catalog has no price table, so the deposit is decoupled from price rather than blocked by its absence. The product name is recorded for the Sheet and the email, but it is identified loosely from the conversation and never affects the amount; an unrecognised product still reserves fine and logs `(unspecified product)`.
 
 The browser sends back only the chosen option's id (`percent`, `fixed_1500`, …), never an amount. `api/create-deposit.js` rebuilds the option list from the freshly re-derived grand total and accepts only an exact match against it, so a tampered request can neither introduce a new amount nor charge one that wasn't offered. The allowed fixed amounts live in a single server-side constant, `ALLOWED_FIXED_DEPOSITS` in `api/chat.js`.
 
 ### Deposit logging
 
-Every confirmed deposit appends one row to the configured Google Sheet, in the range `<tab>!A:L`:
+Every confirmed deposit appends one row to the configured Google Sheet, in the range `<tab>!A:M`:
 
-| A | B | C | D | E | F | G | H | I | J | K | L |
-|---|---|---|---|---|---|---|---|---|---|---|---|
-| Timestamp | Quote Ref | Wall Bed Model | Grand Total | Deposit % | Deposit Paid | Customer Email | Customer Name | Customer Phone | Stripe Session ID | Cabinets | Deposit Option |
+| A | B | C | D | E | F | G | H | I | J | K | L | M |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| Timestamp | Quote Ref | Wall Bed Model | Grand Total | Deposit % | Deposit Paid | Customer Email | Customer Name | Customer Phone | Stripe Session ID | Cabinets | Deposit Option | Product |
 
 **Cabinets** is `Yes` or `No` — whether the deposit covers surround cabinetry or the bed alone.
 
 **Deposit Option** is the option the customer picked — `10% of total`, or `Fixed RM 1,500.00` and so on. For a fixed-amount deposit, **Deposit %** is left blank. The notification email shows the same option.
+
+**Product** is what the deposit is for, filled on every row: wall bed rows mirror the Wall Bed Model column, and product reservations carry their own label. **Add the `Product` header to column M of the Sheet by hand** — the logger writes by position and never writes headers.
 
 Customer email, name, and phone are collected by Stripe's hosted checkout page, not by the chat widget, and read back from `session.customer_details`. Any of them can be blank if Stripe captured nothing.
 
@@ -253,7 +258,7 @@ The suite is offline and needs no credentials: the Google Sheets tests stub `glo
 - Deposit card does not appear: for a wall bed on its own, the customer must have named a specific model and said they want it — an availability or price question alone is not enough. For cabinetry, the estimate must be complete and its price revealed; while cabinetry is still being discussed, the bed-only card is held back unless the customer declines cabinetry. A Murano below the 2.4 m ceiling minimum is never offered a deposit. To see which rule stopped it, search the `chat` function logs for `[deposit] suppressed:`. Treat `[deposit] WITHHELD despite buy intent:` (logged as an error) as the likely-bug case — the customer named a model and said they want it, and still got no card.
 - Checkout fails with "That deposit option is not available for this order": the requested option isn't in the server's list for this order's grand total — usually a fixed amount at or above the total, or a request the widget didn't send. `create-deposit` logs `[deposit] rejected deposit option:` with the reason.
 - Deposit confirmation does not appear in the chat after paying: expected when the original tab was closed, or if the browser severed `window.opener` on the way through Stripe. The success page still confirms the payment, and the webhook still records it — nothing is lost.
-- Sheet columns look shifted: the row must line up with the `A:L` range. A row wider than its range is truncated silently by the Sheets API, so check both together after adding a column.
+- Sheet columns look shifted: the row must line up with the `A:M` range. A row wider than its range is truncated silently by the Sheets API, so check both together after adding a column.
 - Stripe webhook returns 400: verify `STRIPE_WEBHOOK_SECRET` matches the endpoint and the body parser is disabled in `api/stripe-webhook.js`.
 - Deposit logging is missing: confirm the `GOOGLE_SHEETS_*` variables are configured.
 - Deposit notification email not arriving: confirm both `EMAIL_API_KEY` and `COMPANY_NOTIFY_EMAIL` are set and that you redeployed afterwards. On Resend's test sender (no `EMAIL_FROM_ADDRESS`), `COMPANY_NOTIFY_EMAIL` must be your own Resend account email, or Resend returns a `403` — check the `stripe-webhook` function logs for the error.
