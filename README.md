@@ -2,6 +2,8 @@
 
 A Vercel-hosted AI chatbot for MOCOF that answers product questions, helps shortlist wall beds, furniture, and bedding, calculates surround-cabinetry estimates, and can take a reservation deposit through Stripe — 10% of the total, or a fixed amount the customer chooses.
 
+Customers know the assistant as **MOCOF CS**, short for **MOCOF Customer Support**.
+
 ## Overview
 
 This project combines:
@@ -14,6 +16,13 @@ This project combines:
 - automated tests plus CI syntax/import validation
 
 The chatbot uses Gemini through Google's OpenAI-compatible chat completions endpoint and keeps manual pricing logic in JavaScript instead of trusting the model to do arithmetic.
+
+**Changing the assistant's name.** The name isn't stored in one place; it is written into four files, and all four need updating together:
+
+- `api/chat.js` — the opening line of the system prompt, which is how the model knows what to call itself
+- `public/index.html` — the chat header (name and subtitle), the welcome message, and the label under each bot message
+- `public/deposit-success.html` — the header and message label on the post-payment confirmation page
+- `FUTURE_FB_WHATSAPP_INTEGRATION.md` — mentions the assistant by name
 
 ## Prerequisites
 

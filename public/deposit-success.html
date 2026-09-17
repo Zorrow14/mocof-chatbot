@@ -102,8 +102,8 @@
     <div class="head">
       <div class="dot">M</div>
       <div class="who">
-        <b>Moco</b>
-        <span>MOCOF Assistant</span>
+        <b>MOCOF CS</b>
+        <span>MOCOF Customer Support</span>
       </div>
     </div>
 
@@ -122,7 +122,7 @@
             <p>This goes toward your final invoice, confirmed after the site survey. Our team will be in touch on <strong>WhatsApp</strong> shortly to arrange it.</p>
             <span id="ref" class="ref" style="display:none;"></span>
           </div>
-          <div class="mtime" id="stamp">Moco</div>
+          <div class="mtime" id="stamp">MOCOF CS</div>
           <div class="synced" id="synced">A payment confirmation has also been sent to the email you used at checkout.</div>
           <a class="back" id="back" href="/widget">Back to chat</a>
         </div>
@@ -151,8 +151,8 @@
         var h = d.getHours(), m = String(d.getMinutes()).padStart(2, '0');
         var ap = h >= 12 ? 'PM' : 'AM';
         h = h % 12; if (h === 0) h = 12;
-        stamp.textContent = 'Moco · ' + h + ':' + m + ' ' + ap;
-      } catch (e) { /* leave the plain "Moco" label */ }
+        stamp.textContent = 'MOCOF CS · ' + h + ':' + m + ' ' + ap;
+      } catch (e) { /* leave the plain "MOCOF CS" label */ }
 
       // Report the completed payment back into the chat tab that opened this
       // one, so the customer sees a real confirmation bubble in the actual

@@ -342,8 +342,8 @@
   <div class="header">
     <div class="hav" aria-hidden="true">M</div>
     <div class="hinfo">
-      <div class="hname">Moco</div>
-      <div class="hsub">MOCOF AI Consultant</div>
+      <div class="hname">MOCOF CS</div>
+      <div class="hsub">MOCOF Customer Support</div>
     </div>
     <div class="hright">
       <div class="odot"></div>
@@ -454,7 +454,7 @@ function notifyParent() {
 /* ── Welcome ─────────────────────────────────────────── */
 function welcome() {
   addBot(
-    'Hi there! 👋 I\'m Moco, your MOCOF virtual consultant.\n\n' +
+    'Hi there! 👋 I\'m MOCOF CS, MOCOF\'s customer support assistant.\n\n' +
     'I can help you with:\n' +
     '• Wall beds & sofa beds\n' +
     '• Home renovation advice\n' +
@@ -558,7 +558,7 @@ function addBot(txt, images, deposit, reqMessage, reqHistory) {
     '<div class="mav" aria-hidden="true">M</div>' +
     '<div class="mcol">' +
       '<div class="bubble bot">' + fmt(txt) + imagesHtml(images) + depositHtml(deposit, reqMessage, reqHistory) + '</div>' +
-      '<div class="mtime">Moco · ' + now() + '</div>' +
+      '<div class="mtime">MOCOF CS · ' + now() + '</div>' +
     '</div>';
   msgs.appendChild(row);
   scrollDown();
@@ -829,7 +829,7 @@ function addDepositConfirmation(sessionId) {
   lines.push('This goes toward your final invoice, confirmed after the site survey. Our team will be in touch on **WhatsApp** shortly to arrange it.');
 
   // Rendered through the normal bot-bubble path so it looks like any other
-  // reply from Moco. Deliberately NOT pushed into chatHistory: the deposit
+  // reply from MOCOF CS. Deliberately NOT pushed into chatHistory: the deposit
   // amount is a percentage of the estimate and is not among the figures
   // computeCabinetryAllowedAmounts() allows, so replaying it to the model
   // invites it to echo a number the price guardrail would then flag as

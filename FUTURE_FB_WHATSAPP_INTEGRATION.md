@@ -5,7 +5,7 @@ deliberately, with the real scope and gotchas known up front.
 
 ## The idea
 
-Right now the MOCOF chatbot ("Moco") runs only as a web widget on the site. It
+Right now the MOCOF chatbot ("MOCOF CS") runs only as a web widget on the site. It
 could also answer messages sent to the company's **Facebook page** and a
 **WhatsApp** number, so customers get the same product Q&A, cabinetry estimates,
 and deposit flow in the channels they already use.
@@ -36,7 +36,7 @@ translates Zernio's message format to/from what `api/chat.js` already expects.
 **1. It needs a server-side conversation store (a database).**
 The web widget is stateless *because the browser holds the conversation history*
 and sends it back every message. FB/WhatsApp have no browser — Zernio delivers
-one message at a time with no history. But almost everything Moco does depends on
+one message at a time with no history. But almost everything MOCOF CS does depends on
 history: collecting wall measurements across turns, remembering the chosen model,
 the deposit flow, history-aware knowledge routing. So this integration
 **requires** storing per-conversation history keyed by the customer's thread ID
