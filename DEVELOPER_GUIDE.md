@@ -46,6 +46,17 @@ The one sentence that explains almost every design decision in this repo:
 Keep that sentence in your head. Nearly every "why is it built this way"
 question in `CLAUDE.md` traces back to it.
 
+One more thing before you go further: this repo now runs **two** independent
+systems under one deployment. Everything above, and section 3 below, describes
+the customer-facing bot. There's also `/staff` — a passcode-gated tool that
+lets staff turn a plain-English order description into a real Stripe invoice.
+It shares almost nothing with the bot on purpose (the tool spends real money
+in MOCOF's name; the bot is open to the entire internet), and the same
+governing sentence still applies to it, just enforced differently: the model
+*proposes* an invoice, a human edits it, and the server re-validates before
+anything is charged. Section 4 below walks through that system the same way
+section 3 walks through chat.
+
 ---
 
 ## 3. Follow one message through the system
@@ -125,7 +136,78 @@ one step above.
 
 ---
 
-## 4. The recurring failure pattern — read this before you touch deposits or pricing
+## 4. The staff invoice tool, in brief
+
+This is a second, much smaller system living in the same repo, reachable
+only at `/staff`. It exists so staff can turn a conversation like *"Ahmad
+wants a Murano Queen, RM 8,500, plus RM 300 delivery, email ahmad@..."* into
+an actual sendable Stripe invoice, without needing Stripe's own dashboard.
+
+**Why it's kept apart from everything in section 3:** `/api/chat` has to be
+reachable by anyone — it's embedded on the public storefront, wildcard CORS,
+no login. The staff tool creates real charges in MOCOF's name, so it needs
+the opposite of every one of those properties. `CLAUDE.md`'s "Staff invoice
+tool" section is the authoritative reference for *why* each boundary exists;
+this is just the walkthrough.
+
+1. **Staff open `/staff`.** `vercel.json` rewrites that path to
+   `public/staff.html` — a separate page, not part of the customer widget.
+   It's also reachable via a hidden shortcut: typing `staff`, `staff login`,
+   `stafflogin`, or `admin login` into the *customer* widget
+   (`public/index.html`) reveals a link to it instead of sending that text to
+   `/api/chat` (see `isStaffLoginTrigger()` / `addStaffLink()`). That's a
+   convenience only — the widget carries no passcode or secret, and the link
+   doesn't skip the login below; it just points at the same door.
+
+2. **They enter the shared passcode.** `POST /api/staff-login` compares it
+   (via `passcodeMatches()`, constant-time, never `===`) against
+   `STAFF_TOOL_PASSCODE`. On success it sets an `HttpOnly; Secure;
+   SameSite=Strict` cookie holding `signStaffToken()`'s output — an
+   HMAC-SHA256-signed expiry, valid 8 hours, with no session store anywhere
+   (`lib/staffAuth.js`). Every other staff route calls `requireStaffAuth()`
+   first, before touching Gemini or Stripe; an invalid or missing cookie gets
+   a 401 and nothing further runs.
+
+3. **They describe the order in a chat box.** `POST /api/staff-chat` calls
+   Gemini through the same bare caller the customer bot uses
+   (`lib/gemini.js` — no MOCOF prompt or pricing knowledge in it, which is
+   what makes sharing it safe), but with a different system prompt that
+   demands strict JSON and forbids inventing a price: a missing amount must
+   come back `null` with a clarifying question, not a guess. This endpoint
+   **returns a proposal only and never calls Stripe.**
+
+4. **The proposal renders as an editable form**, not raw model output —
+   customer name, email, and one row per line item, all editable, per
+   `public/staff.html`'s DOM-building rules (`createElement` +
+   `textContent`/`.value`, never `innerHTML`, since model output flows into
+   it).
+
+5. **"Confirm & Create Invoice" sends the edited fields** — never the
+   model's raw text — to `POST /api/staff-create-invoice`. This is the one
+   place that actually creates anything: `validateInvoiceInput()`
+   (`lib/invoiceInput.js`) re-checks the human-edited fields from scratch
+   (plausible email, non-empty line items, every amount a finite number
+   above zero, an RM 100,000 ceiling per line and in total), then the
+   handler creates or finds the Stripe customer, creates a draft invoice,
+   attaches each line item to it by invoice id, and finalizes it — in that
+   order specifically, so a failed earlier attempt can't leave orphaned
+   items that silently attach to the next invoice for the same customer.
+   The response is a hosted payment link staff copy to the customer.
+
+**Debugging this system** looks different from section 5 below — there's no
+multi-turn conversation state to reconstruct, so most issues are one of:
+an unset `STAFF_TOOL_PASSCODE`/`STAFF_SESSION_SECRET` (the tool 503s until
+both exist), a 401 from an expired 8-hour session, or a rejected line item —
+`validateInvoiceInput()`'s error string says exactly which field and why.
+The pure-function pieces (`lib/staffAuth.js`, `lib/invoiceInput.js`) have
+their own tests in `test/staffAuth.test.js`; run them the same way as
+anything else (`npm test`). Nothing here mocks Gemini or Stripe, matching
+the rest of the repo, so verify those two calls against Stripe's **test
+mode**, not by reading the code alone.
+
+---
+
+## 5. The recurring failure pattern — read this before you touch deposits or pricing
 
 If you work on this repo for any length of time, you'll hit a bug shaped
 like one of these two. Both have happened multiple times and both are worth
@@ -148,9 +230,16 @@ looks fine, but there's no button, and nothing in the logs explains why.
 
 Pattern B used to be silent. It no longer is — see the next section.
 
+Both patterns are specific to the customer bot's guardrail and deposit
+systems, so they don't apply to the staff invoice tool (section 4) — that
+system is too new to have a documented incident history yet. Its analogous
+risk is a plausible-but-wrong figure a human reviewer doesn't catch, which is
+why the staff prompt forbids inventing a price and `validateInvoiceInput()`
+re-checks every figure server-side regardless of what the form shows.
+
 ---
 
-## 5. How to debug a reported conversation
+## 6. How to debug a reported conversation
 
 This is the actual technique used to find and fix every real bug this
 project has had. It does not require redeploying, waiting for a customer to
@@ -242,7 +331,7 @@ someone phrases it slightly differently again."
 
 ---
 
-## 6. Quick mental model for making a change
+## 7. Quick mental model for making a change
 
 The full version of this is `SKILL.md`'s checklists; this is the one-
 paragraph version to keep in your head while working:
@@ -258,11 +347,17 @@ Sheet is a stored data format, and rows already written don't move. If
 you're touching **a regex/pattern that recognizes customer intent**: test it
 against how a real, non-technical customer phrases things (typos, "yes"
 instead of the expected keyword, Manglish) — nearly every real bug in this
-project's history was a pattern that only matched the "clean" phrasing.
+project's history was a pattern that only matched the "clean" phrasing. If
+you're touching **the staff invoice tool**: every route must call
+`requireStaffAuth()` first, before any Gemini or Stripe call; a new endpoint
+file must be named `staff-*.js` or it silently loses `vercel.json`'s CORS
+exclusion (see `CLAUDE.md`); and Stripe is only ever called with
+human-confirmed structured fields re-validated by `validateInvoiceInput()` —
+never the model's raw text.
 
 ---
 
-## 7. Where things actually run
+## 8. Where things actually run
 
 - **Chat**: `POST /api/chat` → `api/chat.js`
 - **Start a deposit**: `POST /api/create-deposit` → `api/create-deposit.js`
@@ -270,8 +365,16 @@ project's history was a pattern that only matched the "clean" phrasing.
   `api/stripe-webhook.js` (never called by the widget — only by Stripe)
 - **The widget**: `public/index.html`, embedded on the live site via a Wix
   Custom Code snippet (not part of this repo)
-- **Tests**: `npm test` runs `test/consistency.test.js` via Node's built-in
-  test runner — no test framework dependency
+- **Staff login**: `POST /api/staff-login` → `api/staff-login.js`
+- **Staff chat (proposal only — never calls Stripe)**: `POST /api/staff-chat`
+  → `api/staff-chat.js`
+- **Staff invoice creation**: `POST /api/staff-create-invoice` →
+  `api/staff-create-invoice.js`
+- **The staff tool's UI**: `public/staff.html`, served at `/staff` via a
+  `vercel.json` rewrite — passcode-gated, not part of the customer widget
+- **Tests**: `npm test` runs `test/consistency.test.js` **and**
+  `test/staffAuth.test.js` via Node's built-in test runner — no test
+  framework dependency
 - **CI**: `.github/workflows/ci.yml` runs the test suite and syntax-checks
   every file on every push
 
