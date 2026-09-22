@@ -122,6 +122,29 @@ Sessions created before the `cabinets` field existed log an empty cell rather th
 
 Adding a column: append at the **end** and widen the range in the same edit. The contact fields (H, I) were inserted mid-row instead, which moved Stripe Session ID from H to J — any row written before that change is misaligned from column H onward. That was acceptable only because the integration hadn't logged anything yet; assume it isn't next time.
 
+### Staff invoice tool — a separate, authenticated subsystem
+
+`/staff` (`public/staff.html`) lets staff describe an order in chat, review a parsed draft, and create a real Stripe invoice. Three endpoints, all requiring a session: `api/staff-login.js`, `api/staff-chat.js`, `api/staff-create-invoice.js`.
+
+**The boundary is the point.** `/api/chat` is deliberately open to the world — wildcard CORS, no auth — because the widget is embedded on a storefront. The staff tool spends money in MOCOF's name. Nothing may connect them: no staff route may import from the customer chat path or be reachable through it. The one shared piece is `lib/gemini.js`, which knows only how to call an API and carries no MOCOF prompt, knowledge, or pricing.
+
+`vercel.json` is load-bearing for that split, and both rules use negative lookaheads that look odd until you know why:
+
+- `/api/((?!staff-).*)` — the wildcard `Access-Control-Allow-Origin: *` must never cover a staff route. **A new staff endpoint whose filename doesn't start with `staff-` silently opts into public CORS.**
+- `/((?!staff).*)` for the permissive frame headers, with `/staff(.*)` getting `X-Frame-Options: DENY` and `frame-ancestors 'none'`. The widget's `ALLOWALL` exists so the storefront can iframe it; inherited by `/staff` it would allow clickjacking a signed-in staff member into pressing "Confirm & Create Invoice".
+
+Do not add `"//"` comment keys to `vercel.json` to explain any of this — Vercel validates the file against a strict schema and rejects unknown properties.
+
+**Auth** (`lib/staffAuth.js`) is stateless like everything else here: the session *is* `${expiry}.${HMAC-SHA256(expiry, STAFF_SESSION_SECRET)}`, in an `HttpOnly; Secure; SameSite=Strict` cookie, valid 8 hours. Signatures are compared with `timingSafeEqual`, never `===`, and the passcode is hashed before comparison so a wrong-length guess takes the same path as a same-length one. `STAFF_SESSION_SECRET` must differ from `STAFF_TOOL_PASSCODE`; rotating it signs everyone out, which is the revocation mechanism. `requireStaffAuth(req, res)` writes the 401 itself and returns false — every staff route calls it first, before any Gemini or Stripe work.
+
+**The model proposes, it never executes.** `api/staff-chat.js` returns a *proposed* invoice and cannot reach Stripe. `api/staff-create-invoice.js` takes structured, human-confirmed fields — never free text, never the model's raw output — and re-validates them with `validateInvoiceInput()` in `lib/invoiceInput.js` (plausible email, non-empty line items, every amount a finite number > 0, RM 100,000 ceiling per line *and* in total). The validator and the proposal parser live in `lib/` for the same reason `depositIncludesCabinets()` does: `api/staff-create-invoice.js` imports `stripe` and cannot be loaded by the test suite.
+
+The staff prompt forbids inventing a price — a missing amount must come back `null` with a clarifying question. An invented-but-plausible figure is the single failure a human reviewer is least likely to catch.
+
+**Invoice creation order is deliberate:** customer → *draft invoice* → line items attached by `invoice: id` → finalize. The more common order (items first, then an invoice that sweeps up whatever is pending for that customer) means an earlier attempt that failed midway leaves orphaned pending items that silently join the next invoice. `pending_invoice_items_behavior: 'exclude'` backs this up.
+
+`public/staff.html` builds every row with `createElement` and `textContent`/`.value`, never `innerHTML`. Model output flows into that form, and rendering it as markup would be an XSS hole.
+
 ### Google service-account credentials
 
 The Cloud project, service account, and Sheets API enablement backing `lib/sheetsLogger.js` live under **`mocof.chatbot@gmail.com`** — a Google account owned by MOCOF as a business, not by any individual developer.
@@ -158,3 +181,5 @@ Two consequences worth knowing when this breaks:
 ## Environment variables
 
 Required: `GEMINI_API_KEY`. Optional: `GEMINI_API_KEY_2`, `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `SITE_URL`, `EMAIL_API_KEY`, `COMPANY_NOTIFY_EMAIL`, `EMAIL_FROM_ADDRESS`, `GOOGLE_SHEETS_SPREADSHEET_ID`, `GOOGLE_SERVICE_ACCOUNT_EMAIL`, `GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY`, `GOOGLE_SHEETS_TAB_NAME`. Every optional integration no-ops (and logs) when its vars are unset, so partial configuration is a supported state, not a failure.
+
+Staff tool only, and unrelated to everything above: `STAFF_TOOL_PASSCODE` (what staff type at `/staff`) and `STAFF_SESSION_SECRET` (signs the session cookie — a different long random value). `/staff` returns 503 until both are set, which is the safe default: no passcode configured means no way in, not a way in without one.

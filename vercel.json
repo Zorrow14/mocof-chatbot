@@ -2,7 +2,7 @@
   "version": 2,
   "headers": [
     {
-      "source": "/api/(.*)",
+      "source": "/api/((?!staff-).*)",
       "headers": [
         { "key": "Access-Control-Allow-Origin",  "value": "*" },
         { "key": "Access-Control-Allow-Methods", "value": "POST, OPTIONS" },
@@ -10,15 +10,34 @@
       ]
     },
     {
-      "source": "/(.*)",
+      "source": "/api/staff-(.*)",
+      "headers": [
+        { "key": "Cache-Control",          "value": "no-store" },
+        { "key": "X-Content-Type-Options", "value": "nosniff" },
+        { "key": "Referrer-Policy",        "value": "no-referrer" }
+      ]
+    },
+    {
+      "source": "/((?!staff).*)",
       "headers": [
         { "key": "X-Frame-Options", "value": "ALLOWALL" },
         { "key": "Content-Security-Policy", "value": "frame-ancestors *" }
+      ]
+    },
+    {
+      "source": "/staff(.*)",
+      "headers": [
+        { "key": "X-Frame-Options",         "value": "DENY" },
+        { "key": "Content-Security-Policy", "value": "frame-ancestors 'none'" },
+        { "key": "X-Content-Type-Options",  "value": "nosniff" },
+        { "key": "Referrer-Policy",         "value": "no-referrer" },
+        { "key": "X-Robots-Tag",            "value": "noindex, nofollow" }
       ]
     }
   ],
   "rewrites": [
     { "source": "/widget",          "destination": "/index.html" },
-    { "source": "/deposit-success", "destination": "/deposit-success.html" }
+    { "source": "/deposit-success", "destination": "/deposit-success.html" },
+    { "source": "/staff",           "destination": "/staff.html" }
   ]
 }

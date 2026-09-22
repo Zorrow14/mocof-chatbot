@@ -41,6 +41,10 @@ Optional but commonly used:
 - `EMAIL_API_KEY` and `COMPANY_NOTIFY_EMAIL` — enable optional deposit notification emails via Resend (see [Deposit notification emails](#deposit-notification-emails))
 - `GOOGLE_SHEETS_SPREADSHEET_ID`, `GOOGLE_SERVICE_ACCOUNT_EMAIL`, `GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY`, `GOOGLE_SHEETS_TAB_NAME` — optional deposit logging to Google Sheets via `lib/sheetsLogger.js`
 
+Staff invoice tool only — **not** used by the customer-facing chatbot, and unrelated to any variable above. The tool is unavailable until both are set:
+- `STAFF_TOOL_PASSCODE` — the shared passcode staff type at `/staff`. Anyone who has it can create real invoices in MOCOF's name, so treat it like a password: long, random, shared privately, rotated when someone leaves.
+- `STAFF_SESSION_SECRET` — signs the staff session cookie. A long random string (e.g. `openssl rand -hex 32`). **Must be a different value from `STAFF_TOOL_PASSCODE`** — reusing the passcode here would let anyone who knows it forge sessions directly. Changing it signs every staff member out immediately, which is also how you revoke access in a hurry.
+
 ## Quick start
 
 ```bash
@@ -84,6 +88,11 @@ curl -X POST http://localhost:3000/api/chat \
 - `CLAUDE.md` — architecture notes and the invariants to preserve when changing pricing, deposits, or the Sheet row
 - `FUTURE_FB_WHATSAPP_INTEGRATION.md` — planning notes for a possible future Facebook Messenger / WhatsApp channel via Zernio; nothing in the code uses it yet
 - `public/index.html` — chat widget UI
+- `public/staff.html` — staff-only invoice tool UI, served at `/staff` (passcode gate, then chat → review → create)
+- `api/staff-login.js`, `api/staff-chat.js`, `api/staff-create-invoice.js` — the staff tool's endpoints; every one requires a valid staff session
+- `lib/staffAuth.js` — staff session tokens (HMAC-SHA256, no DB), passcode comparison, and the `requireStaffAuth()` gate
+- `lib/invoiceInput.js` — validates staff-confirmed invoice input before Stripe is touched, and parses the model's proposal
+- `lib/gemini.js` — the Gemini caller, shared by the customer bot and the staff tool
 - `public/deposit-success.html` — success page shown after successful Stripe checkout
 - `test/consistency.test.js` — regression checks for critical pricing and gating logic
 - `.github/workflows/ci.yml` — CI checks for syntax and import validity
@@ -245,6 +254,30 @@ That is why `EMAIL_FROM_ADDRESS` is intentionally left unset. `EMAIL_API_KEY` an
 2. **Move the domain's DNS to a provider that supports subdomain MX records** (Cloudflare, for example), then verify the domain in Resend and set `EMAIL_FROM_ADDRESS`. This means recreating *every* existing record at the new provider — the Google Workspace MX records, the Wix site records, and any existing verification TXT records. Treat it as a planned migration with mail downtime risk, not a quick change.
 
 Notifications depend on the Stripe webhook being live: the email is composed inside `api/stripe-webhook.js`, so if the webhook is not configured, no email is ever built regardless of these variables.
+
+## Staff invoice tool
+
+A separate, staff-only page at `/staff` that turns a plain-English order description into a real Stripe invoice with a payable link to send the customer. It shares no code path with the customer chatbot.
+
+1. Staff enter the shared passcode (`STAFF_TOOL_PASSCODE`) and get an 8-hour session cookie.
+2. They describe the order in chat. `POST /api/staff-chat` asks Gemini to turn it into structured fields and **returns a proposal only** — this endpoint never contacts Stripe. If something essential is missing, the model replies with one clarifying question instead.
+3. The proposal appears as an editable form: customer name, email, and a row per line item. Every figure can be corrected, lines added or removed.
+4. **Confirm & Create Invoice** posts the edited fields to `POST /api/staff-create-invoice`, which re-validates them server-side, creates the Stripe customer and invoice, finalizes it, and returns the hosted payment link to copy.
+
+### Why it is safe to let a model near invoicing
+
+- **The model proposes; a human confirms; the server decides.** `/api/staff-chat` cannot create anything. `/api/staff-create-invoice` accepts structured fields only — never free text, and never anything forwarded straight from the model.
+- **Validation is server-side regardless of the form.** `validateInvoiceInput()` rejects a missing email, an empty line-item list, and any amount that is not a finite number above zero. There is a RM 100,000 ceiling per line and in total as a fat-finger guard; raising it is a code change, not a runtime option.
+- **The model is told never to invent a price.** A missing amount comes back as `null` with a clarifying question, because a plausible invented figure is the one error a reviewer might not catch.
+- **Every staff route checks the session first**, before any Gemini or Stripe call, so an unauthenticated request costs nothing and reveals nothing.
+
+### Security boundary
+
+`/api/chat` is public by design: `Access-Control-Allow-Origin: *` and no auth. The staff routes are the opposite, and `vercel.json` enforces the split:
+
+- The wildcard CORS rule is scoped to `/api/((?!staff-).*)` — it deliberately **excludes** `/api/staff-*`. A new staff endpoint whose filename does not begin with `staff-` would silently opt into public CORS.
+- The permissive frame headers (`X-Frame-Options: ALLOWALL`) that let the storefront embed the widget are scoped to `/((?!staff).*)`, and `/staff*` gets `DENY` plus `frame-ancestors 'none'` instead. Without that the tool could be loaded in an invisible iframe and a signed-in staff member clickjacked into creating an invoice.
+- The session cookie is `HttpOnly`, `Secure`, `SameSite=Strict`, and holds an HMAC-signed expiry — there is no session store to read, and the expiry cannot be edited without invalidating the signature. `Secure` is dropped only when the request's host is localhost, so `vercel dev` over http still works.
 
 ## Testing and CI
 

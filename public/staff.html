@@ -1,0 +1,361 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="robots" content="noindex, nofollow">
+<title>MOCOF — Staff Invoice Tool</title>
+<style>
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 24px 16px 60px;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Arial, sans-serif;
+    background: #f4f4f4; color: #222222; font-size: 14px; line-height: 1.5;
+  }
+  .wrap { max-width: 720px; margin: 0 auto; }
+  .card { background: #ffffff; border: 1px solid #dddddd; border-radius: 14px; padding: 20px; margin-bottom: 16px; }
+  h1 { font-size: 18px; margin: 0 0 4px; }
+  .sub { color: #777777; font-size: 12px; margin: 0 0 20px; }
+  label { display: block; font-size: 12px; font-weight: 600; margin: 12px 0 4px; }
+  input, textarea {
+    width: 100%; padding: 10px 12px; font-size: 14px; font-family: inherit;
+    border: 1px solid #dddddd; border-radius: 10px; background: #ffffff; color: #222222;
+  }
+  input:focus, textarea:focus { outline: 2px solid #000000; outline-offset: -1px; }
+  textarea { resize: vertical; min-height: 68px; }
+  button {
+    background: #000000; color: #ffffff; border: none; border-radius: 20px;
+    padding: 10px 18px; font-size: 13px; font-weight: 600; font-family: inherit; cursor: pointer;
+  }
+  button:hover:not(:disabled) { background: #333333; }
+  button:disabled { opacity: 0.5; cursor: not-allowed; }
+  button.ghost { background: #ffffff; color: #222222; border: 1px solid #dddddd; padding: 6px 12px; font-weight: 500; }
+  button.ghost:hover:not(:disabled) { background: #f4f4f4; }
+  .err { color: #b00020; font-size: 13px; margin-top: 10px; }
+  .ok { color: #0a7d3f; font-size: 13px; margin-top: 10px; }
+  .muted { color: #777777; font-size: 12px; }
+  .log { margin-bottom: 16px; }
+  .bubble { padding: 10px 14px; border-radius: 14px; margin-bottom: 8px; max-width: 85%; white-space: pre-wrap; }
+  .bubble.me { background: #000000; color: #ffffff; margin-left: auto; border-bottom-right-radius: 4px; }
+  .bubble.bot { background: #f0f0f0; color: #222222; border-bottom-left-radius: 4px; }
+  .row { display: flex; gap: 8px; align-items: flex-start; }
+  .row input.desc { flex: 1; }
+  .row input.amt { width: 130px; }
+  .lineitem { display: flex; gap: 8px; align-items: center; margin-bottom: 8px; }
+  .total { text-align: right; font-weight: 700; font-size: 15px; margin: 12px 0; }
+  .hidden { display: none; }
+  .linkbox { display: flex; gap: 8px; margin-top: 10px; }
+  .linkbox input { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 12px; }
+  .warn { background: #fff8e1; border: 1px solid #ffe08a; border-radius: 10px; padding: 10px 12px; font-size: 12px; margin-bottom: 16px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <!-- ── Passcode gate ─────────────────────────────────────── -->
+  <div class="card" id="loginCard">
+    <h1>MOCOF Staff — Invoice Tool</h1>
+    <p class="sub">Staff access only. Enter the shared passcode to continue.</p>
+    <form id="loginForm" autocomplete="off">
+      <label for="passcode">Passcode</label>
+      <input type="password" id="passcode" name="passcode" autocomplete="current-password" required>
+      <div style="margin-top:14px;"><button type="submit" id="loginBtn">Sign in</button></div>
+      <div class="err hidden" id="loginErr"></div>
+    </form>
+  </div>
+
+  <!-- ── Tool ─────────────────────────────────────────────── -->
+  <div id="toolCard" class="hidden">
+    <div class="card">
+      <h1>Describe the order</h1>
+      <p class="sub">Plain English is fine — include the customer's name, email, and the price of each item.</p>
+      <div class="log" id="log"></div>
+      <form id="chatForm" autocomplete="off">
+        <textarea id="chatInput" placeholder="e.g. Invoice Aisyah at aisyah@example.com for a Murano Queen at RM 14,371.55 and delivery at RM 300"></textarea>
+        <div style="margin-top:10px;"><button type="submit" id="sendBtn">Send</button></div>
+        <div class="err hidden" id="chatErr"></div>
+      </form>
+    </div>
+
+    <!-- Proposed invoice — editable before anything is created -->
+    <div class="card hidden" id="draftCard">
+      <h1>Review the invoice</h1>
+      <p class="sub">Check every figure. Creating the invoice is real and immediately sends a payable link.</p>
+      <div class="warn">Nothing has been created yet. Stripe is only contacted when you press <strong>Confirm &amp; Create Invoice</strong>.</div>
+
+      <label for="custName">Customer name</label>
+      <input type="text" id="custName">
+
+      <label for="custEmail">Customer email</label>
+      <input type="email" id="custEmail">
+
+      <label>Line items</label>
+      <div id="items"></div>
+      <button type="button" class="ghost" id="addItem">+ Add line item</button>
+
+      <div class="total" id="total"></div>
+
+      <button type="button" id="confirmBtn">Confirm &amp; Create Invoice</button>
+      <div class="err hidden" id="draftErr"></div>
+    </div>
+
+    <!-- Result -->
+    <div class="card hidden" id="doneCard">
+      <h1>Invoice created</h1>
+      <p class="sub" id="doneMeta"></p>
+      <label for="link">Payment link — send this to the customer</label>
+      <div class="linkbox">
+        <input type="text" id="link" readonly>
+        <button type="button" id="copyBtn">Copy</button>
+      </div>
+      <div class="ok hidden" id="copied">Copied to clipboard.</div>
+      <div style="margin-top:16px;"><button type="button" class="ghost" id="newBtn">Start another invoice</button></div>
+    </div>
+  </div>
+
+</div>
+
+<script>
+/* Staff invoice tool.
+   Same-origin fetches only, and every server value is written with
+   textContent / .value — never innerHTML. Some of it originates from a
+   language model, and model output rendered as markup is an XSS hole. */
+
+var el = function (id) { return document.getElementById(id); };
+var history_ = [];   // {role, content} turns for /api/staff-chat
+var items = [];      // {description, amount} rows currently on screen
+
+function show(node, visible) { node.classList.toggle('hidden', !visible); }
+
+function setError(node, message) {
+  node.textContent = message || '';
+  show(node, Boolean(message));
+}
+
+/* A 401 means the 8-hour session lapsed. Drop back to the passcode form
+   rather than leaving the staff member clicking a dead button. */
+function handleUnauthorized() {
+  show(el('toolCard'), false);
+  show(el('loginCard'), true);
+  setError(el('loginErr'), 'Your session expired. Please sign in again.');
+  history_ = [];
+}
+
+async function postJson(url, body) {
+  var res = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    credentials: 'same-origin',
+    body: JSON.stringify(body)
+  });
+  var data = null;
+  try { data = await res.json(); } catch (e) { /* non-JSON error page */ }
+  return { status: res.status, ok: res.ok, data: data || {} };
+}
+
+/* ── Sign in ─────────────────────────────────────────────── */
+el('loginForm').addEventListener('submit', async function (e) {
+  e.preventDefault();
+  setError(el('loginErr'), '');
+  el('loginBtn').disabled = true;
+  try {
+    var r = await postJson('/api/staff-login', { passcode: el('passcode').value });
+    if (r.ok) {
+      el('passcode').value = '';
+      show(el('loginCard'), false);
+      show(el('toolCard'), true);
+      el('chatInput').focus();
+    } else {
+      setError(el('loginErr'), r.data.error || 'Sign in failed.');
+    }
+  } catch (err) {
+    setError(el('loginErr'), 'Could not reach the server.');
+  } finally {
+    el('loginBtn').disabled = false;
+  }
+});
+
+/* ── Chat ────────────────────────────────────────────────── */
+function addBubble(text, who) {
+  var b = document.createElement('div');
+  b.className = 'bubble ' + who;
+  b.textContent = text;
+  el('log').appendChild(b);
+  b.scrollIntoView({ block: 'nearest' });
+}
+
+el('chatForm').addEventListener('submit', async function (e) {
+  e.preventDefault();
+  var message = el('chatInput').value.trim();
+  if (!message) return;
+
+  setError(el('chatErr'), '');
+  addBubble(message, 'me');
+  el('chatInput').value = '';
+  el('sendBtn').disabled = true;
+
+  try {
+    var r = await postJson('/api/staff-chat', { message: message, history: history_ });
+    if (r.status === 401) { handleUnauthorized(); return; }
+    if (!r.ok) { setError(el('chatErr'), r.data.error || 'Something went wrong.'); return; }
+
+    history_.push({ role: 'user', content: message });
+
+    var proposal = r.data.proposal;
+    var question = r.data.clarifyingQuestion;
+
+    if (question) {
+      addBubble(question, 'bot');
+      history_.push({ role: 'assistant', content: question });
+    }
+    /* A proposal can arrive alongside a question — partial fields the staff
+       member can start correcting while they answer it. */
+    if (proposal) renderDraft(proposal);
+    if (!question && !proposal) addBubble('No invoice details could be read from that.', 'bot');
+  } catch (err) {
+    setError(el('chatErr'), 'Could not reach the server.');
+  } finally {
+    el('sendBtn').disabled = false;
+  }
+});
+
+/* ── Editable draft ──────────────────────────────────────── */
+function renderDraft(proposal) {
+  el('custName').value = proposal.customerName || '';
+  el('custEmail').value = proposal.customerEmail || '';
+  items = (proposal.lineItems || []).map(function (row) {
+    return { description: row.description || '', amount: (row.amount === null || row.amount === undefined) ? '' : String(row.amount) };
+  });
+  if (items.length === 0) items.push({ description: '', amount: '' });
+  renderItems();
+  show(el('draftCard'), true);
+  show(el('doneCard'), false);
+  setError(el('draftErr'), '');
+}
+
+function renderItems() {
+  var box = el('items');
+  box.textContent = '';
+  items.forEach(function (item, index) {
+    var row = document.createElement('div');
+    row.className = 'lineitem';
+
+    var desc = document.createElement('input');
+    desc.type = 'text';
+    desc.className = 'desc';
+    desc.placeholder = 'Description';
+    desc.value = item.description;
+    desc.addEventListener('input', function () { items[index].description = desc.value; });
+
+    var amt = document.createElement('input');
+    amt.type = 'text';
+    amt.inputMode = 'decimal';
+    amt.className = 'amt';
+    amt.placeholder = 'RM amount';
+    amt.value = item.amount;
+    amt.addEventListener('input', function () { items[index].amount = amt.value; renderTotal(); });
+
+    var del = document.createElement('button');
+    del.type = 'button';
+    del.className = 'ghost';
+    del.textContent = '×';
+    del.title = 'Remove line item';
+    del.addEventListener('click', function () {
+      items.splice(index, 1);
+      if (items.length === 0) items.push({ description: '', amount: '' });
+      renderItems();
+    });
+
+    row.appendChild(desc);
+    row.appendChild(amt);
+    row.appendChild(del);
+    box.appendChild(row);
+  });
+  renderTotal();
+}
+
+/* Display only. The server re-validates and re-totals every amount; this is
+   just so a mistyped figure is obvious before anyone presses Confirm. */
+function parseAmount(raw) {
+  var cleaned = String(raw).replace(/rm/gi, '').replace(/,/g, '').trim();
+  if (cleaned === '' || !/^\d*\.?\d+$/.test(cleaned)) return null;
+  var n = Number(cleaned);
+  return isFinite(n) ? n : null;
+}
+
+function renderTotal() {
+  var total = 0;
+  var incomplete = false;
+  items.forEach(function (item) {
+    var n = parseAmount(item.amount);
+    if (n === null) { incomplete = true; return; }
+    total += n;
+  });
+  el('total').textContent = 'Total: RM ' + total.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+    + (incomplete ? '  (some amounts still missing)' : '');
+}
+
+el('addItem').addEventListener('click', function () {
+  items.push({ description: '', amount: '' });
+  renderItems();
+});
+
+/* ── Confirm → create the real invoice ───────────────────── */
+el('confirmBtn').addEventListener('click', async function () {
+  setError(el('draftErr'), '');
+  el('confirmBtn').disabled = true;
+  el('confirmBtn').textContent = 'Creating…';
+
+  try {
+    var payload = {
+      customerName: el('custName').value,
+      customerEmail: el('custEmail').value,
+      currency: 'myr',
+      lineItems: items.map(function (item) {
+        return { description: item.description, amount: item.amount };
+      })
+    };
+
+    var r = await postJson('/api/staff-create-invoice', payload);
+    if (r.status === 401) { handleUnauthorized(); return; }
+    if (!r.ok) { setError(el('draftErr'), r.data.error || 'Could not create the invoice.'); return; }
+
+    el('link').value = r.data.hostedInvoiceUrl || '';
+    el('doneMeta').textContent = 'Invoice ' + (r.data.invoiceId || '')
+      + (typeof r.data.total === 'number'
+          ? ' · RM ' + r.data.total.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+          : '');
+    show(el('draftCard'), false);
+    show(el('doneCard'), true);
+    show(el('copied'), false);
+  } catch (err) {
+    setError(el('draftErr'), 'Could not reach the server.');
+  } finally {
+    el('confirmBtn').disabled = false;
+    el('confirmBtn').textContent = 'Confirm & Create Invoice';
+  }
+});
+
+el('copyBtn').addEventListener('click', async function () {
+  var value = el('link').value;
+  if (!value) return;
+  try {
+    await navigator.clipboard.writeText(value);
+  } catch (err) {
+    el('link').select();          // clipboard API blocked — let them copy by hand
+    document.execCommand('copy');
+  }
+  show(el('copied'), true);
+});
+
+el('newBtn').addEventListener('click', function () {
+  history_ = [];
+  items = [];
+  el('log').textContent = '';
+  show(el('doneCard'), false);
+  show(el('draftCard'), false);
+  el('chatInput').focus();
+});
+</script>
+</body>
+</html>
