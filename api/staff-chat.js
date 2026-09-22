@@ -17,14 +17,19 @@
 import { requireStaffAuth } from '../lib/staffAuth.js';
 import { getGeminiApiKeys, callGeminiWithFallback, GEMINI_MODEL } from '../lib/gemini.js';
 import { parseProposedInvoice } from '../lib/invoiceInput.js';
+import { buildProductNameReference } from '../lib/productNames.js';
 
 const MAX_HISTORY_TURNS = 12;
 
-// Note what this prompt does NOT contain: any MOCOF pricing, catalog or
-// persona. The staff member supplies the amounts; the model's only job is to
-// shape what they typed into fields. It is explicitly told not to invent
-// prices, because a plausible-looking invented amount is the one failure here
-// that a human reviewer might not catch.
+// Note what this prompt does NOT contain: any MOCOF PRICING or persona. It
+// does carry the catalog's product NAMES, so the model can tidy "murano q"
+// into "Murano Queen" rather than inventing a house style — but names only,
+// never an amount beside them. The staff member supplies every figure, and the
+// model is explicitly told not to invent one, because a plausible-looking
+// invented amount is the one failure here that a human reviewer might not
+// catch. Handing it a price list is exactly what would undermine that.
+const PRODUCT_NAME_REFERENCE = buildProductNameReference();
+
 const STAFF_SYSTEM_PROMPT = `You help MOCOF staff draft an invoice from a plain-English description of an order.
 
 Respond with STRICT JSON ONLY. No prose, no explanation, no markdown code fences. Your entire reply must be a single JSON object of exactly this shape:
@@ -43,7 +48,12 @@ Rules:
 - If something essential is missing (no customer email, no amount, no idea what is being sold), set "clarifyingQuestion" to one short, specific question and still fill in whatever you did understand. Leave the rest partial — do not guess.
 - When you have everything you need, set "clarifyingQuestion" to null.
 - Split the order into one line item per distinct product or service.
-- Keep descriptions short and factual, as they will appear on a customer's invoice.`;
+- Keep descriptions short and factual, as they will appear on a customer's invoice.
+- Where a line item clearly refers to one of the MOCOF products listed below, write that product's name EXACTLY as it appears in the list ("murano q" and "Murano Queen WB" both become "Murano Queen"; "gioco single desk" becomes "Gioco Single Desk").
+- If a line item does NOT clearly match one of those products, keep the staff member's own wording unchanged. Custom and one-off items ("custom cabinetry job", "delivery charge", "site survey fee") are normal and must be passed through as written. Never substitute a listed product for something you are unsure about — a wrong product name on an invoice is worse than an untidy one.${PRODUCT_NAME_REFERENCE ? `
+
+MOCOF PRODUCT NAMES (names only — these are NOT prices, and carry no information about what anything costs):
+${PRODUCT_NAME_REFERENCE}` : ''}`;
 
 export default async function handler(req, res) {
     res.setHeader('Cache-Control', 'no-store');

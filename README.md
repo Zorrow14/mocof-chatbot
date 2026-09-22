@@ -92,6 +92,7 @@ curl -X POST http://localhost:3000/api/chat \
 - `api/staff-login.js`, `api/staff-chat.js`, `api/staff-create-invoice.js` — the staff tool's endpoints; every one requires a valid staff session
 - `lib/staffAuth.js` — staff session tokens (HMAC-SHA256, no DB), passcode comparison, and the `requireStaffAuth()` gate
 - `lib/invoiceInput.js` — validates staff-confirmed invoice input before Stripe is touched, and parses the model's proposal
+- `lib/productNames.js` — canonical product names derived from `knowledge/*.js`, and the conservative normalizer that tidies invoice line-item descriptions (never overrides what staff typed when it is unsure)
 - `lib/gemini.js` — the Gemini caller, shared by the customer bot and the staff tool
 - `public/deposit-success.html` — success page shown after successful Stripe checkout
 - `test/consistency.test.js` — regression checks for critical pricing and gating logic

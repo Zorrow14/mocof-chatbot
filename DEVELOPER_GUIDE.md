@@ -176,6 +176,11 @@ this is just the walkthrough.
    come back `null` with a clarifying question, not a guess. This endpoint
    **returns a proposal only and never calls Stripe.**
 
+   Line-item descriptions are also tidied here: `normalizeProductName()`
+   (`lib/productNames.js`) turns "murano q" into "Murano Queen", but returns
+   the staff member's own words untouched whenever it is not certain — a
+   custom job stays a custom job.
+
 4. **The proposal renders as an editable form**, not raw model output —
    customer name, email, and one row per line item, all editable, per
    `public/staff.html`'s DOM-building rules (`createElement` +
@@ -199,7 +204,8 @@ multi-turn conversation state to reconstruct, so most issues are one of:
 an unset `STAFF_TOOL_PASSCODE`/`STAFF_SESSION_SECRET` (the tool 503s until
 both exist), a 401 from an expired 8-hour session, or a rejected line item —
 `validateInvoiceInput()`'s error string says exactly which field and why.
-The pure-function pieces (`lib/staffAuth.js`, `lib/invoiceInput.js`) have
+The pure-function pieces (`lib/staffAuth.js`, `lib/invoiceInput.js`,
+`lib/productNames.js`) have
 their own tests in `test/staffAuth.test.js`; run them the same way as
 anything else (`npm test`). Nothing here mocks Gemini or Stripe, matching
 the rest of the repo, so verify those two calls against Stripe's **test

@@ -2,8 +2,9 @@
 // FILE: test/staffAuth.test.js
 // Run with: npm test  (or: node --test test/staffAuth.test.js)
 //
-// Covers the two pure pieces of the staff invoice tool: the session token, and
-// the validator that stands between staff input and a real Stripe invoice.
+// Covers the pure pieces of the staff invoice tool: the session token, the
+// validator that stands between staff input and a real Stripe invoice, and the
+// product-name normalizer that tidies line-item descriptions.
 // Both are in lib/ precisely so they can be tested — api/staff-create-invoice.js
 // imports `stripe` and so cannot be loaded by this suite, and nothing here
 // touches Stripe or Gemini over the network.
@@ -28,6 +29,12 @@ import {
     parseProposedInvoice,
     MAX_INVOICE_AMOUNT_RM
 } from '../lib/invoiceInput.js';
+
+import {
+    normalizeProductName,
+    buildProductNameReference,
+    PRODUCT_NAMES
+} from '../lib/productNames.js';
 
 const SECRET = 'test-staff-session-secret-do-not-use-in-production';
 const HOUR = 60 * 60 * 1000;
@@ -320,5 +327,119 @@ describe('parsing the model-proposed invoice', () => {
     test('never hands back a currency other than MYR', () => {
         const parsed = parseProposedInvoice(JSON.stringify({ ...JSON.parse(GOOD), currency: 'usd' }));
         assert.equal(parsed.currency, 'myr');
+    });
+});
+
+// ─────────────────────────────────────────────────────────────
+// Product-name normalization. The two properties that matter are in tension,
+// so both are pinned here: a recognisable alias should get tidied, and
+// anything else must survive EXACTLY as the staff member typed it. The second
+// is the important one — staff invoice real custom work, and a confidently
+// wrong product name on a customer's invoice is worse than an untidy one.
+// ─────────────────────────────────────────────────────────────
+describe('product name normalization', () => {
+    test('tidies a known alias into the catalog name', () => {
+        assert.equal(normalizeProductName('murano q'), 'Murano Queen');
+        assert.equal(normalizeProductName('gioco single desk'), 'Gioco Single Desk');
+        assert.equal(normalizeProductName('murano k'), 'Murano King');
+        assert.equal(normalizeProductName('murano sgl'), 'Murano Single');
+    });
+
+    test('ignores case, spacing and trailing noise words', () => {
+        assert.equal(normalizeProductName('MURANO QUEEN SOFA'), 'Murano Queen Sofa');
+        assert.equal(normalizeProductName('  murano   queen  '), 'Murano Queen');
+        // "WB" for wall bed adds nothing that changes which product it is.
+        assert.equal(normalizeProductName('Murano Queen WB'), 'Murano Queen');
+        assert.equal(normalizeProductName('gioco bnk'), 'Gioco Bunk Bed');
+    });
+
+    test('prefers the more specific product when both fit', () => {
+        // "Gioco Single" also matches this text; the longer name wins.
+        assert.equal(normalizeProductName('gioco single desk'), 'Gioco Single Desk');
+        assert.equal(normalizeProductName('zeta recliner chair'), 'Zeta Recliner Chair');
+        assert.equal(normalizeProductName('zeta recliner'), 'Zeta Recliner');
+    });
+
+    test('leaves an unknown description exactly as typed', () => {
+        for (const custom of [
+            'custom cabinetry job',
+            'delivery charge',
+            'Site survey fee',
+            'Balance payment for renovation work',
+            'Deposit refund'
+        ]) {
+            assert.equal(normalizeProductName(custom), custom,
+                'a custom line item must never be rewritten into a catalog product');
+        }
+    });
+
+    test('does not rewrite when that would discard what the staff member typed', () => {
+        // The colour and the word "frame" may well matter on the invoice, and
+        // we cannot tell — so the whole description is left alone.
+        assert.equal(normalizeProductName('velvet sofa bed royal blue'), 'velvet sofa bed royal blue');
+        assert.equal(normalizeProductName('murano queen bed frame'), 'murano queen bed frame');
+        assert.equal(normalizeProductName('2x murano queen'), '2x murano queen');
+    });
+
+    test('refuses to choose between two equally good matches', () => {
+        // Arto Wardrobe comes in 1.6m and 1.8m; neither is more likely.
+        assert.equal(normalizeProductName('arto wardrobe'), 'arto wardrobe');
+        assert.equal(normalizeProductName('arto wardrobe 1.6m'), 'Arto Wardrobe 1.6m');
+    });
+
+    test('matches a one-word product name only when it is the whole description', () => {
+        // "Zen" is a real product, and also an ordinary English word.
+        assert.equal(normalizeProductName('Zen'), 'Zen');
+        assert.equal(normalizeProductName('zen garden shelf'), 'zen garden shelf');
+    });
+
+    test('never throws, and never empties a non-empty description', () => {
+        for (const input of [null, undefined, 42, {}, [], true]) {
+            assert.equal(normalizeProductName(input), input, 'non-strings pass straight through');
+        }
+        assert.equal(normalizeProductName(''), '');
+        assert.equal(normalizeProductName('   '), '   ');
+        assert.equal(normalizeProductName('!!!'), '!!!');
+    });
+
+    test('the catalog is actually populated from the knowledge modules', () => {
+        // A silent extraction failure would turn normalization into a no-op
+        // without anything else noticing, so pin it here.
+        assert.ok(PRODUCT_NAMES.length > 50, `expected a real catalog, got ${PRODUCT_NAMES.length}`);
+        const names = PRODUCT_NAMES.map(p => p.name);
+        for (const expected of ['Murano Queen', 'Gioco Single Desk', 'Theta Sofa', 'Ottoman Bed']) {
+            assert.ok(names.includes(expected), `${expected} missing from the derived catalog`);
+        }
+    });
+
+    test('the prompt reference carries names but never prices', () => {
+        const reference = buildProductNameReference();
+        assert.ok(reference.includes('Murano Queen'));
+        // Handing the model a price list is exactly what would undermine the
+        // "never invent an amount" rule the staff prompt depends on.
+        assert.ok(!/RM\s*[\d,]/i.test(reference), 'the product reference must not contain any price');
+        // Money-shaped figures specifically. Bare digits are fine and expected
+        // — "Semplice 1200TC duvet sets" is a thread count, "Arto Wardrobe
+        // 1.6m" a width — but a decimal or comma-grouped amount is not.
+        assert.ok(!/\d[\d,]*\.\d{2}\b/.test(reference), 'no decimal amount in the product reference');
+        assert.ok(!/\d{1,3}(,\d{3})+/.test(reference), 'no comma-grouped amount in the product reference');
+    });
+
+    test('applies to a parsed proposal, leaving custom lines untouched', () => {
+        const parsed = parseProposedInvoice(JSON.stringify({
+            customerName: 'Ahmad',
+            customerEmail: 'ahmad@example.com',
+            lineItems: [
+                { description: 'murano q', amount: 14371.55 },
+                { description: 'custom cabinetry job', amount: 5000 }
+            ],
+            currency: 'myr',
+            clarifyingQuestion: null
+        }));
+        assert.equal(parsed.lineItems[0].description, 'Murano Queen');
+        assert.equal(parsed.lineItems[1].description, 'custom cabinetry job');
+        // Normalization must not have disturbed the amounts.
+        assert.equal(parsed.lineItems[0].amount, 14371.55);
+        assert.equal(parsed.lineItems[1].amount, 5000);
     });
 });
