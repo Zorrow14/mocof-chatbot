@@ -189,6 +189,12 @@
   .bubble.bot .mlist:last-child { margin-bottom: 0; }
   .bubble.bot .mlist li { margin: 2px 0; }
 
+  /* Only used by the staff-login shortcut bubble (see addStaffLink() below).
+     fmt() renders no links at all, so no ordinary bot reply reaches this. */
+  .bubble.bot .staff-link {
+    color: #000000; text-decoration: underline; font-weight: 600;
+  }
+
   /* Scrolls horizontally if a table is wider than the bubble, rather than
      being silently clipped by .msgs's overflow-x: hidden. */
   .bubble.bot .mtbl-wrap {
@@ -382,6 +388,19 @@
 var API_URL            = 'https://mocof-chatbot.vercel.app/api/chat';
 var CREATE_DEPOSIT_URL = 'https://mocof-chatbot.vercel.app/api/create-deposit';
 
+/* Staff-login shortcut. Typing one of these phrases reveals a link to the
+   staff invoice tool instead of sending the message to /api/chat. It is a
+   convenience shortcut and nothing more: the page it opens still demands the
+   passcode, and every /api/staff-* route checks the session server-side, so
+   this reveals no access that guessing the URL wouldn't. Deliberately has no
+   button, menu entry, or hint anywhere in the UI — a customer who never types
+   the phrase never sees it. NO SECRET BELONGS IN THIS FILE; the widget is
+   public source on the storefront. */
+var STAFF_LOGIN_TRIGGERS = ['staff login', 'staff', 'stafflogin', 'admin login'];
+// Absolute for the same reason API_URL is: the widget is embedded via iframe
+// on the storefront, so a relative path is not reliably this deployment.
+var STAFF_TOOL_URL       = 'https://mocof-chatbot.vercel.app/staff.html';
+
 /* ── State ───────────────────────────────────────────── */
 var isOpen      = false;
 var isBusy      = false;
@@ -494,6 +513,17 @@ function sendQ(txt) {
 
 /* ── Core: sends to /api/chat ────────────────────────── */
 async function process(txt) {
+  // Staff shortcut, checked before anything is sent. The message is shown as
+  // a normal user bubble (swallowing it silently would look like a bug) but is
+  // NOT pushed to chatHistory, so the keyword never reaches the server on this
+  // turn or any later one.
+  if (isStaffLoginTrigger(txt)) {
+    addUser(txt);
+    addStaffLink();
+    minput.focus();
+    return;
+  }
+
   addUser(txt);
   setBusy(true);
   showTyping();
@@ -558,6 +588,35 @@ function addBot(txt, images, deposit, reqMessage, reqHistory) {
     '<div class="mav" aria-hidden="true">M</div>' +
     '<div class="mcol">' +
       '<div class="bubble bot">' + fmt(txt) + imagesHtml(images) + depositHtml(deposit, reqMessage, reqHistory) + '</div>' +
+      '<div class="mtime">MOCOF CS · ' + now() + '</div>' +
+    '</div>';
+  msgs.appendChild(row);
+  scrollDown();
+}
+
+/* ── Staff-login shortcut ─────────────────────────────
+   Exact-match only, against the trimmed/lowercased message. Not a substring
+   test: a customer asking "do your staff deliver?" must reach the chatbot
+   normally, and "staff" on its own is a listed trigger. */
+function isStaffLoginTrigger(txt) {
+  var t = String(txt).trim().toLowerCase();
+  return STAFF_LOGIN_TRIGGERS.indexOf(t) !== -1;
+}
+
+/* Same markup as addBot() so it reads as an ordinary assistant reply, but
+   built here rather than passed through fmt() — fmt() renders no links. */
+function addStaffLink() {
+  var row = document.createElement('div');
+  row.className = 'mrow bot';
+  row.innerHTML =
+    '<div class="mav" aria-hidden="true">M</div>' +
+    '<div class="mcol">' +
+      '<div class="bubble bot">' +
+        '<div class="mpara">Staff tool: ' +
+          '<a class="staff-link" href="' + esc(STAFF_TOOL_URL) + '" ' +
+             'target="_blank" rel="noopener noreferrer">open the invoice login</a>' +
+        '</div>' +
+      '</div>' +
       '<div class="mtime">MOCOF CS · ' + now() + '</div>' +
     '</div>';
   msgs.appendChild(row);
