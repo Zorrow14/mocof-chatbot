@@ -149,7 +149,7 @@ The staff prompt forbids inventing a price — a missing amount must come back `
 
 ### Google service-account credentials
 
-The Cloud project, service account, and Sheets API enablement backing `lib/sheetsLogger.js` live under **`mocof.chatbot@gmail.com`** — a Google account owned by MOCOF as a business, not by any individual developer.
+The Cloud project, service account, and Sheets API enablement backing `lib/sheetsLogger.js` live under **`mocof.chatbot@example.com`** — a Google account owned by MOCOF as a business, not by any individual developer.
 
 Two reasons, both load-bearing:
 

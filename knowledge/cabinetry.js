@@ -8,7 +8,7 @@
 //     LEFTOVER WALL WIDTH after the wall bed, split evenly between the two
 //     sides -- UNCHANGED process from the previous version:
 //       sideCabinetWidthFt = (totalWallWidthFt - wallBedWidthFt) / 2
-//       sideCostPerSide    = sideCabinetWidthFt * RM1,350
+//       sideCostPerSide    = sideCabinetWidthFt * RM1,200
 //       sideCostTotal      = sideCostPerSide * numberOfSides   (default 2 sides)
 //     Side cabinets are built to a height that depends on the wall bed
 //     model, regardless of how tall the wall is -- Murano keeps the flat
@@ -21,7 +21,7 @@
 //   - Overhead cabinet directly above the wall bed, priced by the TOTAL
 //     WALL WIDTH (not just the wall bed's width, since the overhead
 //     cabinet runs the full width of the wall):
-//       topCost = totalWallWidthFt * RM850
+//       topCost = totalWallWidthFt * RM750
 //     Overhead cabinets are built up to a maximum height of 4ft, measured
 //     from the top of the side cabinets:
 //       overheadCabinetHeightFt = min(4, max(0, wallHeightFt - sideCabinetHeightFt))
@@ -44,8 +44,8 @@
 // wallbeds.js does not import this file, so this direction is safe.
 import { WALLBED_MODEL_HEIGHTS_FT } from './wallbeds.js';
 
-const SIDE_RATE_PER_FT            = 1350;  // RM per ft of LEFTOVER WIDTH, per side cabinet -- unchanged
-const TOP_RATE_PER_FT             = 850;   // RM per ft of TOTAL WALL WIDTH, overhead cabinet -- now priced off total wall width, not bed width
+const SIDE_RATE_PER_FT            = 1200;  // RM per ft of LEFTOVER WIDTH, per side cabinet -- unchanged
+const TOP_RATE_PER_FT             = 750;   // RM per ft of TOTAL WALL WIDTH, overhead cabinet -- now priced off total wall width, not bed width
 // Exported (not just a local const) because it's also the minimum wall height
 // for cabinetry to fit at all -- api/chat.js imports this exact value instead
 // of hardcoding 7 again elsewhere, so the two can never drift out of sync.
@@ -287,7 +287,7 @@ FORMULA:
 - Side cabinets (one on each side of the wall bed, 2 sides by default — ask if only
   one side is open, e.g. bed is against a corner). SAME PROCESS as before, unchanged:
     sideCabinetWidth = (total wall width − wall bed width) ÷ 2
-    sideCostPerSide  = sideCabinetWidth × RM1,350
+    sideCostPerSide  = sideCabinetWidth × RM1,200
     sideCostTotal    = sideCostPerSide × number of sides
   → Based on WIDTH, not height. Wall height does NOT affect this part of the estimate
     at all. (Side cabinets are physically built at the height set by the wall bed
@@ -295,7 +295,7 @@ FORMULA:
     spec note above — but this is not part of the price calculation.)
 - Overhead cabinet above the bed, priced by the TOTAL WALL WIDTH (not the wall bed's
   width — the overhead cabinet runs the full width of the wall):
-    topCost = total wall width × RM850
+    topCost = total wall width × RM750
   (The overhead cabinet's actual built height depends on the wall height — up to 4ft,
   see spec note above — but that height does NOT affect this price calculation, which
   is driven entirely by total wall width.)
@@ -315,61 +315,61 @@ FINAL CUSTOMER TOTAL — WALL BED + CABINETRY:
 WORKED EXAMPLE 1 — wall exactly 11ft tall, wall bed 5.5ft wide, total wall width 10ft,
 2 sides:
   Leftover width for sides: (10 − 5.5) ÷ 2 = 2.25ft per side
-  Side: 2.25 × RM1,350 = RM3,037.50 per side × 2 = RM6,075 (7ft tall — a Murano)
+  Side: 2.25 × RM1,200 = RM2,700 per side × 2 = RM5,400 (7ft tall — a Murano)
   Overhead cabinet height: 11 − 7 = 4ft (reaches the full cap since wall ≥ 11ft)
-  Top: 10 (total wall width) × RM850 = RM8,500 (built at 4ft tall)
-  Cabinetry subtotal: RM14,575
+  Top: 10 (total wall width) × RM750 = RM7,500 (built at 4ft tall)
+  Cabinetry subtotal: RM12,900
 
 WORKED EXAMPLE 2 — wall SHORTER than 11ft (9ft tall), SAME widths as example 1 (5.5ft
 bed, 10ft total wall width), 2 sides:
   Leftover width for sides: (10 − 5.5) ÷ 2 = 2.25ft per side (identical to example 1 —
   height plays no part in the side-cabinet or overhead-cabinet PRICE)
-  Side: 2.25 × RM1,350 = RM3,037.50 per side × 2 = RM6,075 (7ft tall — a Murano)
+  Side: 2.25 × RM1,200 = RM2,700 per side × 2 = RM5,400 (7ft tall — a Murano)
   Overhead cabinet height: 9 − 7 = 2ft (shorter than the 4ft cap, since the wall is
   under 11ft)
-  Top: 10 (total wall width) × RM850 = RM8,500 (same price as example 1 — only the
+  Top: 10 (total wall width) × RM750 = RM7,500 (same price as example 1 — only the
   built HEIGHT is shorter, not the price, since price is driven by width, not height)
-  Cabinetry subtotal: RM14,575
+  Cabinetry subtotal: RM12,900
   (Same subtotal as example 1, even though the wall is shorter and the overhead cabinet
   is physically built shorter — price never changes with wall height.)
 
 WORKED EXAMPLE 3 — same as example 1 but only ONE side available (corner installation):
   Leftover width for sides: (10 − 5.5) ÷ 2 = 2.25ft (still split as if both sides existed,
   even though only one side cabinet is actually being built)
-  Side: 2.25 × RM1,350 = RM3,037.50 per side × 1 = RM3,037.50 (7ft tall — a Murano)
-  Top: 10 (total wall width) × RM850 = RM8,500 (built at 4ft tall, wall is 11ft)
-  Cabinetry subtotal: RM11,537.50
+  Side: 2.25 × RM1,200 = RM2,700 per side × 1 = RM2,700 (7ft tall — a Murano)
+  Top: 10 (total wall width) × RM750 = RM7,500 (built at 4ft tall, wall is 11ft)
+  Cabinetry subtotal: RM10,200
 
 WORKED EXAMPLE 4 — full wall bed + cabinetry total, same wall as example 1 (11ft tall,
 10ft total wall width, 2 sides), customer has chosen the Murano Queen Sofa (5.48ft wide
 — close enough to the 5.5ft used above to reuse the side-cabinet math; use the model's
 real spec width, 5.48ft, when actually calculating the leftover width):
-  Wall bed (Murano Queen Sofa, sale price): RM 23,698.11
-  Side cabinets: RM 3,051 per side × 2 = RM 6,102 (7ft tall — a Murano)
-  Overhead cabinet: 10 (total wall width) × RM850 = RM 8,500 (built at 4ft tall)
-  Cabinetry subtotal: RM 14,602
-  GRAND TOTAL (wall bed + cabinetry): RM 38,300.11
+  Wall bed (Murano Queen Sofa, sale price): RM 20,854.34
+  Side cabinets: RM 2,712 per side × 2 = RM 5,424 (7ft tall — a Murano)
+  Overhead cabinet: 10 (total wall width) × RM750 = RM 7,500 (built at 4ft tall)
+  Cabinetry subtotal: RM 12,924
+  GRAND TOTAL (wall bed + cabinetry): RM 33,778.34
 
 WORKED EXAMPLE 5 — a GIOCO, where the side cabinets are much shorter. Gioco Single
 (6.71ft wide, 105cm ≈ 3.44ft tall), wall 9ft tall, total wall width 12ft, 2 sides:
   Leftover width for sides: (12 − 6.71) ÷ 2 = 2.65ft per side
-  Side: 2.65 × RM1,350 = RM3,577.50 per side × 2 = RM7,155 (3.44ft tall — the Gioco
+  Side: 2.65 × RM1,200 = RM3,180 per side × 2 = RM6,360 (3.44ft tall — the Gioco
   Single's own height, NOT the 7ft used for a Murano)
   Overhead cabinet height: 9 − 3.44 = 5.56ft, which exceeds the 4ft cap, so it is
   built at 4ft
-  Top: 12 (total wall width) × RM850 = RM10,200
-  Cabinetry subtotal: RM17,355
+  Top: 12 (total wall width) × RM750 = RM9,000
+  Cabinetry subtotal: RM15,360
   Cabinetry reaches 3.44 + 4 = 7.44ft up a 9ft wall, leaving about 1.56ft of bare wall
   above it. Mention that if the customer asks how far up the wall it goes; it costs
   nothing extra.
 
 WORKED EXAMPLE 6 — same wall and widths as example 5, but a Gioco Queen (170cm ≈ 5.58ft
 tall) instead, showing that Gioco height is per-MODEL and not one figure for the series:
-  Side: 2.65 × RM1,350 = RM3,577.50 per side × 2 = RM7,155 (5.58ft tall — the Gioco
+  Side: 2.65 × RM1,200 = RM3,180 per side × 2 = RM6,360 (5.58ft tall — the Gioco
   Queen's own height)
   Overhead cabinet height: 9 − 5.58 = 3.42ft (under the 4ft cap, so built at 3.42ft)
-  Top: 12 × RM850 = RM10,200
-  Cabinetry subtotal: RM17,355
+  Top: 12 × RM750 = RM9,000
+  Cabinetry subtotal: RM15,360
   (IDENTICAL subtotal to example 5 despite a completely different cabinet height — the
   price is driven by width alone. Only the build heights differ, and here the stack
   reaches the full 9ft with no bare wall left above.)
@@ -383,12 +383,12 @@ PRESENTATION RULES:
   cabinetry subtotal, then the combined GRAND TOTAL — don't just state a lump sum, and
   don't state the cabinetry subtotal as if it were the final price on its own.
 - Format the breakdown as a bullet list (one "- " line per item — e.g. "- Wall bed
-  (Murano Queen Sofa): RM 23,698.11") or, if you prefer, as a small two-column Markdown
+  (Murano Queen Sofa): RM 20,854.34") or, if you prefer, as a small two-column Markdown
   table (Item | Cost). Either is fine — just don't run the line items together in one
   paragraph, since a breakdown like this is exactly the kind of content that should be
   structured, not prose.
 - Always label it as an ESTIMATE and close with: "This is an estimate — please confirm
-  the exact quote with our team on WhatsApp at +60 12-568 4568, as final pricing depends
+  the exact quote with our team on WhatsApp at +60 12-345 6789, as final pricing depends
   on a site survey."
 - Never guess a customer's wall height, wall bed width, wall bed model, or total wall
   width — always ask (the wall bed model can also be picked up from earlier in the

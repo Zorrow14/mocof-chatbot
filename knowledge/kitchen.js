@@ -36,7 +36,7 @@ RECOMMENDATION GUIDE:
 - Invisible ceiling extraction, luxury → Airforce
 - Always ask: Open-plan or closed kitchen? Daily or occasional cooking? Countertop material preference?
 
-For kitchen cabinetry pricing and a free consultation, contact us on WhatsApp: +60 12-568 4568
-Our design team at MOCOF Studio HQ (Sentul) handles kitchen renovation consultations.
+For kitchen cabinetry pricing and a free consultation, contact us on WhatsApp: +60 12-345 6789
+Our design team at MOCOF Studio HQ (Northgate) handles kitchen renovation consultations.
 `;
 }

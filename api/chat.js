@@ -49,7 +49,7 @@ const KNOWLEDGE_MODULES = [
     { key: 'kitchen', test: /kitchen|cabinet|cabinetry|cooking|pantry/, fn: getKitchenKnowledge },
     { key: 'wardrobe', test: /wardrobe|closet|clothes|storage|walk-in|cabinet/, fn: getWardrobeKnowledge },
     { key: 'bedsheet', test: /bedsheet|bed sheet|bedding|duvet|quilt|comforter|pillow|bolster|cushion|towel|bath mat|tencel|egyptian cotton|pure cotton|signoria|fitted sheet|flat ?sheet|thread count|mattress protector/, fn: getBedsheetKnowledge },
-    { key: 'showroom', test: /showroom|visit|location|address|trx|maison|appointment|open|hour/, fn: getShowroomKnowledge },
+    { key: 'showroom', test: /showroom|visit|location|address|crescent|maison|appointment|open|hour/, fn: getShowroomKnowledge },
     { key: 'warranty', test: /warranty|guarantee|claim|repair|after.?sales|defect/, fn: getWarrantyKnowledge },
     { key: 'renovation', test: /renovation|interior|design|house|condo|budget|layout|floor plan|material|panel|laminate|formaldehyde|\bENF\b|finish(es|ing)?|champagne luxe|walnut cocoa|glacier mirror/i, fn: getRenovationKnowledge },
     {
@@ -135,9 +135,9 @@ PERSONALITY:
 - Suggest showroom visits for serious buyers
 
 WHATSAPP CONTACT:
-- For product inquiries: +60 12-568 4568
-- For renovation inquiries: +60 12-475 4568
-- When customer mentions renovation budget or design preferences, use the renovation WhatsApp number (+60 12-475 4568).
+- For product inquiries: +60 12-345 6789
+- For renovation inquiries: +60 12-345 6780
+- When customer mentions renovation budget or design preferences, use the renovation WhatsApp number (+60 12-345 6780).
 - ONLY append WhatsApp contact when the customer explicitly mentions their BUDGET or DESIGN PREFERENCES specifically in the context of renovation (e.g. "my budget is RM 50k", "I want a Scandinavian style", "how much would a full renovation cost", "what design do you suggest for my condo renovation").
 - Do NOT include the WhatsApp number or that message in any other responses — not for general product questions, showroom visits, warranty, delivery, pricing enquiries, or any other topic unless renovation budget or renovation design is the clear subject. The ONE exception is a genuine human handoff, below.
 
@@ -148,10 +148,10 @@ WHEN TO HAND OFF TO A HUMAN:
   3. Their request is outside the catalog or outside what you can do, or you are simply
      not confident your answer is right.
   4. They explicitly ask for a person.
-- Use +60 12-568 4568 for products, +60 12-475 4568 for renovation.
+- Use +60 12-345 6789 for products, +60 12-345 6780 for renovation.
 - Frame it as help arriving, never as a dead end or a refusal. Something like: "Let me
   connect you with a colleague who can help with this directly on **WhatsApp** at
-  +60 12-568 4568." Warm, one or two sentences, no apology spiral.
+  +60 12-345 6789." Warm, one or two sentences, no apology spiral.
 - Keep helping in the meantime. Still answer whatever part of their question you CAN
   answer, and offer the handoff alongside it — never reply with only a phone number.
 - Do not hand off on the first small stumble. One clarifying question is normal
@@ -160,15 +160,15 @@ WHEN TO HAND OFF TO A HUMAN:
 PRICING RULES:
 - You CAN share the listed retail and sale prices from the knowledge base
 - Always present both: "Retail: RM X | Sale: RM X"
-- For custom items (walk-in wardrobes, kitchen cabinetry, full renovation): say "Pricing is personalised — contact us on WhatsApp at +60 12-568 4568 for a quote"
+- For custom items (walk-in wardrobes, kitchen cabinetry, full renovation): say "Pricing is personalised — contact us on WhatsApp at +60 12-345 6789 for a quote"
 - NEVER fabricate prices not in the knowledge base
 
 YOUR KNOWLEDGE BASE:
 ${getRelevantKnowledge(message, history)}
 
 PRODUCT RECOMMENDATION RULES:
-- Study room → Gioco Single with Desk (RM 17,538.11 sale)
-- Living room → Murano Queen with Sofa (RM 23,698.11 sale)
+- Study room → Gioco Single with Desk (RM 15,433.54 sale)
+- Living room → Murano Queen with Sofa (RM 20,854.34 sale)
 - Low ceiling below 2.4m (~7.9ft) → Gioco Series is the ONLY option
 - Standard ceiling 2.4m and above (~7.9ft+) → Murano Series
 - Murano REQUIRES a 2.4m+ / ~7.9ft+ ceiling — this is not just a suggestion, Murano is not installable below that. If a customer states or implies a ceiling under 2.4m/~7.9ft, do NOT recommend or confirm any Murano model — recommend the equivalent Gioco model instead and say plainly why. Note this is NOT the same as the separate 7ft minimum for surround cabinetry below — a ceiling can be tall enough for cabinetry yet still too short for a Murano.
@@ -196,7 +196,7 @@ If customer mentions renovation, interior design, house design, condo renovation
 7. Room dimensions
 8. Existing obstacles
 9. Target completion date
-After all collected → summarise and say: "Thank you! Please reach out to our design consultant on WhatsApp at +60 12-475 4568 to schedule your free consultation and share these details."
+After all collected → summarise and say: "Thank you! Please reach out to our design consultant on WhatsApp at +60 12-345 6780 to schedule your free consultation and share these details."
 - If the customer only wants to buy a single product (e.g. "I just wanna buy a wall bed") rather than a full renovation, do NOT run this lead collection flow — just help them with the product directly.
 
 SURROUND CABINETRY ESTIMATES:
@@ -305,7 +305,7 @@ CRITICAL — IMAGES:
 - Instead: when a customer asks to see a product, just answer the substantive question (price, specs, dimensions, availability) as if the photo question was never asked. Do not acknowledge the request for a photo one way or the other — simply skip past it to the product information.
 
 SHOWROOM APPOINTMENT / SHOW UNIT VIEWING:
-- For TRX Core Residence or Maison MOCOF TRX viewings → always say: "This is by appointment only — please contact us on WhatsApp at +60 12-568 4568 to book your visit."
+- For Crescent Core Residence or Maison MOCOF Crescent Park viewings → always say: "This is by appointment only — please contact us on WhatsApp at +60 12-345 6789 to book your visit."
 - For general showroom visits → share the relevant showroom details and suggest WhatsApp for appointments
 
 RESPONSE RULES:
@@ -326,16 +326,16 @@ FORMATTING RULES:
 - TABLES: when presenting genuinely tabular/comparative data (e.g. comparing two or more models side by side, or a multi-row price breakdown), use a proper Markdown table — a header row, then a separator row of dashes, then data rows, all with matching column counts:
   | Model | Width | Sale Price |
   |---|---|---|
-  | Murano Queen | 167cm | RM 14,371.55 |
-  | Murano King | 198cm | RM 15,285.45 |
+  | Murano Queen | 167cm | RM 12,646.96 |
+  | Murano King | 198cm | RM 13,451.20 |
   Keep tables narrow and mobile-friendly: 4 columns maximum, short cell text (a few words or one number per cell, no long sentences inside a cell). Every row must have the same number of columns as the header. Don't use a table for a single row of data or for prose — only when there are genuinely multiple rows/columns to compare.
 - Never mix a table and a numbered-question list in the same reply — pick whichever structure actually fits what you're presenting.
 
 CRITICAL — GROUNDING (this section overrides anything above if there's ever a conflict):
 - Every product name, price, and spec you state must appear character-for-character in the KNOWLEDGE BASE section above — EXCEPT a surround cabinetry estimate you calculate live from the formula and the customer's own stated measurements (see SURROUND CABINETRY ESTIMATES above). That is the only case where a number not literally in the knowledge base is allowed. Never invent a product by combining two real names — for example there is no "Gioco Queen Sofa"; the real Gioco lineup is ONLY: Gioco Single, Gioco Queen, Gioco Single Desk, Gioco Bunk Bed. The real Murano lineup is ONLY: Murano Single, Murano Queen, Murano King, Murano Queen Sofa, Murano Queen Desk, Murano Queen Shelves.
 - If a customer asks for something cheaper or an alternative, only offer a REAL lower-priced option that is already in the knowledge base above (e.g. Murano Single or Gioco Single are the lowest-priced wall beds; a Basic Sofa is the lowest-cost way to add separate seating). Never invent a new "budget" variant or a new price.
-- Always state prices exactly as written in the knowledge base, including the cents (e.g. "RM 12,062.55", not "RM 12,062" or "around RM 12,000") — rounding or approximating a real price is not allowed.
-- If a customer asks about a specific named product (e.g. "what is X?"), first check the ENTIRE knowledge base above carefully before answering — do not say a product doesn't exist unless you have checked thoroughly. If it genuinely isn't there, say you don't have that specific detail on hand rather than firmly declaring it doesn't exist, and offer to confirm via WhatsApp (+60 12-568 4568) — a product you can't find in your own context may still be real.`;
+- Always state prices exactly as written in the knowledge base, including the cents (e.g. "RM 10,615.04", not "RM 10,615" or "around RM 10,600") — rounding or approximating a real price is not allowed.
+- If a customer asks about a specific named product (e.g. "what is X?"), first check the ENTIRE knowledge base above carefully before answering — do not say a product doesn't exist unless you have checked thoroughly. If it genuinely isn't there, say you don't have that specific detail on hand rather than firmly declaring it doesn't exist, and offer to confirm via WhatsApp (+60 12-345 6789) — a product you can't find in your own context may still be real.`;
 }
 
 // ── API key ──────────────────────────────────────────────────
@@ -369,8 +369,8 @@ function toGeminiHistory(history) {
 // didn't retrigger that knowledge category.
 //
 // Uses a small tolerance (not exact-cent matching) because the model may
-// naturally round a real price in casual phrasing (e.g. "RM 12,062" instead
-// of "RM 12,062.55") — that's not hallucination, it's rounding, and treating
+// naturally round a real price in casual phrasing (e.g. "RM 10,615" instead
+// of "RM 10,615.04") — that's not hallucination, it's rounding, and treating
 // it as hallucination throws away a perfectly correct answer.
 function extractAmounts(text) {
     const amounts = [];
@@ -1016,7 +1016,7 @@ function buildCabinetryEstimateBlock(message, history) {
         if (stuckOn.length > 0) {
             return [
                 '',
-                `CABINETRY ESTIMATE — STUCK, HAND OFF TO A HUMAN: you have already asked this customer for ${stuckOn.join(' and ')} at least ${STUCK_MEASUREMENT_ASKS} times and still cannot read a usable number from their replies. STOP asking for it again — repeating the question is not working and will frustrate them. Instead, warmly offer to hand them over to a colleague who can take the measurements with them: acknowledge that measuring a wall over chat is fiddly, then offer **WhatsApp** at +60 12-568 4568 so someone can walk them through it or arrange a site visit. Keep it to one or two friendly sentences and do not apologise repeatedly. Answer anything else they asked as normal, and do NOT state any cabinetry price — you still do not have the measurements to compute one.`
+                `CABINETRY ESTIMATE — STUCK, HAND OFF TO A HUMAN: you have already asked this customer for ${stuckOn.join(' and ')} at least ${STUCK_MEASUREMENT_ASKS} times and still cannot read a usable number from their replies. STOP asking for it again — repeating the question is not working and will frustrate them. Instead, warmly offer to hand them over to a colleague who can take the measurements with them: acknowledge that measuring a wall over chat is fiddly, then offer **WhatsApp** at +60 12-345 6789 so someone can walk them through it or arrange a site visit. Keep it to one or two friendly sentences and do not apologise repeatedly. Answer anything else they asked as normal, and do NOT state any cabinetry price — you still do not have the measurements to compute one.`
             ].join('\n');
         }
 
@@ -1499,7 +1499,7 @@ function getDepositOptionsForBasis(basis) {
 // exactly what every checkout did before options existed, so a widget loaded
 // before this change — or any client that doesn't send a choice — still charges
 // what it always did. A PRESENT but unrecognised choice is rejected, never
-// quietly downgraded to the default: a customer who picked RM 1,500 must not be
+// quietly downgraded to the default: a customer who picked RM 1,302 must not be
 // silently charged 10% instead.
 function resolveDepositChoice(grandTotal, depositOption) {
     return resolveChoiceFromOptions(getDepositOptions(grandTotal), depositOption, DEPOSIT_OPTION_PERCENT);
@@ -1646,7 +1646,7 @@ function findHallucinatedPrices(reply, userMessage, extraKnownAmounts = []) {
     return suspicious;
 }
 
-const SAFE_FALLBACK_REPLY = "I want to make sure I give you accurate pricing rather than guess — let me connect you with our team directly. Please reach out on **WhatsApp** at +60 12-568 4568 and they'll confirm the exact options and prices for you. Is there anything else I can help with in the meantime?";
+const SAFE_FALLBACK_REPLY = "I want to make sure I give you accurate pricing rather than guess — let me connect you with our team directly. Please reach out on **WhatsApp** at +60 12-345 6789 and they'll confirm the exact options and prices for you. Is there anything else I can help with in the meantime?";
 
 // Backstop for the CRITICAL — IMAGES system-prompt rule: strips any sentence
 // that still claims an inability to show/display/send a photo, in case the

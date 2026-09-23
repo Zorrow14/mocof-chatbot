@@ -198,16 +198,16 @@ describe('wall bed width/pricing table consistency', () => {
 
 // ── System-prompt hardcoded prices vs. the knowledge table ──
 // buildSystemPrompt() (not exported — it's the actual LLM-facing prompt
-// text) hardcodes "Study room → Gioco Single with Desk (RM 17,538.11 sale)"
-// and "Living room → Murano Queen with Sofa (RM 23,698.11 sale)" under
+// text) hardcodes "Study room → Gioco Single with Desk (RM 15,433.54 sale)"
+// and "Living room → Murano Queen with Sofa (RM 20,854.34 sale)" under
 // PRODUCT RECOMMENDATION RULES. Those literal figures were copied from
 // WALLBED_MODEL_PRICING at the time the prompt was written; nothing
 // enforces they stay equal if the catalog price changes later. This test
 // is the tripwire for that specific drift.
 describe('system-prompt product-recommendation prices vs. catalog', () => {
     const promptClaims = [
-        { label: 'Gioco Single Desk', promptSale: 17538.11 },
-        { label: 'Murano Queen Sofa', promptSale: 23698.11 }
+        { label: 'Gioco Single Desk', promptSale: 15433.54 },
+        { label: 'Murano Queen Sofa', promptSale: 20854.34 }
     ];
 
     for (const claim of promptClaims) {
@@ -235,36 +235,36 @@ describe('cabinetry formula matches its own worked examples', () => {
     test('worked example 1 — 11ft wall, 5.5ft bed, 10ft total width, 2 sides', () => {
         const r = calculateCabinetPrice({ wallHeightFt: 11, wallBedWidthFt: 5.5, totalWallWidthFt: 10, sides: 2 });
         assert.equal(r.sideCabinetWidthFt, 2.25);
-        assert.equal(r.sideCostPerSide, 3037.50);
-        assert.equal(r.sideCostTotal, 6075);
-        assert.equal(r.topCost, 8500);
-        assert.equal(r.total, 14575);
+        assert.equal(r.sideCostPerSide, 2700);
+        assert.equal(r.sideCostTotal, 5400);
+        assert.equal(r.topCost, 7500);
+        assert.equal(r.total, 12900);
         assert.equal(r.overheadCabinetHeightFt, 4);
     });
 
     test('worked example 2 — 9ft wall (same widths as example 1): same price, shorter overhead cabinet', () => {
         const r = calculateCabinetPrice({ wallHeightFt: 9, wallBedWidthFt: 5.5, totalWallWidthFt: 10, sides: 2 });
-        assert.equal(r.total, 14575, 'wall height must not affect price');
+        assert.equal(r.total, 12900, 'wall height must not affect price');
         assert.equal(r.overheadCabinetHeightFt, 2, '9ft wall - 7ft fixed side height = 2ft overhead cabinet');
     });
 
     test('worked example 3 — same as example 1 but only 1 side (corner installation)', () => {
         const r = calculateCabinetPrice({ wallHeightFt: 11, wallBedWidthFt: 5.5, totalWallWidthFt: 10, sides: 1 });
-        assert.equal(r.sideCostTotal, 3037.50);
-        assert.equal(r.total, 11537.50);
+        assert.equal(r.sideCostTotal, 2700);
+        assert.equal(r.total, 10200);
     });
 
     test('worked example 4 — full wall bed + cabinetry grand total for Murano Queen Sofa', () => {
         const r = calculateCabinetPrice({ wallHeightFt: 11, wallBedWidthFt: 5.48, totalWallWidthFt: 10, sides: 2 });
-        assert.equal(r.sideCostPerSide, 3051);
-        assert.equal(r.sideCostTotal, 6102);
-        assert.equal(r.topCost, 8500);
-        assert.equal(r.total, 14602);
+        assert.equal(r.sideCostPerSide, 2712);
+        assert.equal(r.sideCostTotal, 5424);
+        assert.equal(r.topCost, 7500);
+        assert.equal(r.total, 12924);
 
         const wallBed = WALLBED_MODEL_PRICING.find(p => p.label === 'Murano Queen Sofa');
         assert.ok(wallBed, 'Murano Queen Sofa missing from WALLBED_MODEL_PRICING');
         const grandTotal = round2(wallBed.sale + r.total);
-        assert.equal(grandTotal, 38300.11);
+        assert.equal(grandTotal, 33778.34);
     });
 
     test('a taller wall never costs more (price is width-driven only)', () => {
@@ -300,8 +300,8 @@ describe('cabinetry context extraction -> pricing -> price guardrail chain', () 
         assert.equal(est.heightFt, 11);
         assert.equal(est.totalWidthFt, 10);
         assert.equal(est.wallBedModelLabel, 'Murano Queen Sofa');
-        assert.equal(est.total, 14602);
-        assert.equal(est.grandTotal, 38300.11);
+        assert.equal(est.total, 12924);
+        assert.equal(est.grandTotal, 33778.34);
     });
 
     test('price intent is detected even though it was asked several turns before the final measurement', () => {
@@ -311,19 +311,19 @@ describe('cabinetry context extraction -> pricing -> price guardrail chain', () 
     test('a correctly-computed grand total reply is never flagged as hallucinated', () => {
         const allowed = computeCabinetryAllowedAmounts(message, history);
         const reply =
-            'Wall bed (Murano Queen Sofa): RM 23,698.11. ' +
-            'Side cabinets: RM 3,051.00 per side x 2 = RM 6,102.00. ' +
-            'Overhead cabinet: RM 8,500.00. ' +
-            'Cabinetry subtotal: RM 14,602.00. ' +
-            'GRAND TOTAL: RM 38,300.11';
+            'Wall bed (Murano Queen Sofa): RM 20,854.34. ' +
+            'Side cabinets: RM 2,712.00 per side x 2 = RM 5,424.00. ' +
+            'Overhead cabinet: RM 7,500.00. ' +
+            'Cabinetry subtotal: RM 12,924.00. ' +
+            'GRAND TOTAL: RM 33,778.34';
         assert.deepEqual(findHallucinatedPrices(reply, message, allowed), []);
     });
 
     test('an arithmetically wrong grand total for this SAME context is still caught', () => {
         const allowed = computeCabinetryAllowedAmounts(message, history);
-        const wrongReply = 'GRAND TOTAL (wall bed + cabinetry): RM 38,273.11';
+        const wrongReply = 'GRAND TOTAL (wall bed + cabinetry): RM 33,751.34';
         const bad = findHallucinatedPrices(wrongReply, message, allowed);
-        assert.deepEqual(bad, ['38273.11']);
+        assert.deepEqual(bad, ['33751.34']);
     });
 
     // ── Deposit offer (Stripe integration) — reuses this exact fixture so
@@ -334,9 +334,9 @@ describe('cabinetry context extraction -> pricing -> price guardrail chain', () 
         const offer = computeDepositOffer(message, history);
         assert.ok(offer, 'expected a non-null deposit offer');
         assert.equal(offer.wallBedModelLabel, 'Murano Queen Sofa');
-        assert.equal(offer.grandTotal, 38300.11);
+        assert.equal(offer.grandTotal, 33778.34);
         assert.equal(offer.depositPercent, DEPOSIT_PERCENT);
-        assert.equal(offer.depositAmount, 3830.01); // 10% of 38300.11, rounded
+        assert.equal(offer.depositAmount, 3377.83); // 10% of 33778.34, rounded
     });
 });
 
@@ -721,8 +721,8 @@ describe('buildSystemPrompt — renovation WhatsApp number consistency', () => {
         assert.notEqual(sectionStart, -1, 'expected to find the chat.js RENOVATION LEAD COLLECTION: block');
         const sectionEnd = prompt.indexOf('\n\n', sectionStart);
         const section = prompt.slice(sectionStart, sectionEnd === -1 ? undefined : sectionEnd);
-        assert.match(section, /\+60 12-475 4568/);
-        assert.doesNotMatch(section, /\+60 12-568 4568/);
+        assert.match(section, /\+60 12-345 6780/);
+        assert.doesNotMatch(section, /\+60 12-345 6789/);
     });
 });
 
@@ -1060,7 +1060,7 @@ describe('wall-bed-only deposit path', () => {
     const WALLBED_ONLY = [
         ...INFO_ONLY,
         { role: 'user', content: 'I want the Murano Queen' },
-        { role: 'assistant', content: 'Great choice — the Murano Queen is RM 23,698.11 sale.' }
+        { role: 'assistant', content: 'Great choice — the Murano Queen is RM 20,854.34 sale.' }
     ];
 
     test('offers a deposit on the wall bed sale price when cabinetry never came up', () => {
@@ -1278,7 +1278,7 @@ describe('deposit "Cabinets" Yes/No mapping', () => {
             { role: 'user', content: 'Do you have a Murano Queen?' },
             { role: 'assistant', content: 'Yes — the Murano Queen is available.' },
             { role: 'user', content: 'I want the Murano Queen' },
-            { role: 'assistant', content: 'Great — it is RM 23,698.11 sale.' }
+            { role: 'assistant', content: 'Great — it is RM 20,854.34 sale.' }
         ]);
         const withCabinetry = getDepositBasisFromContext('10ft', [
             { role: 'user', content: 'Murano Queen Sofa with side cabinets, how much in total?' },
@@ -1416,10 +1416,10 @@ describe('side-cabinet height is per wall bed model', () => {
             sideCabinetHeightFt: resolveSideCabinetHeightFt('Gioco Single')
         });
         assert.equal(r.sideCabinetWidthFt, 2.65);
-        assert.equal(r.sideCostPerSide, 3577.5);
-        assert.equal(r.sideCostTotal, 7155);
-        assert.equal(r.topCost, 10200);
-        assert.equal(r.total, 17355);
+        assert.equal(r.sideCostPerSide, 3180);
+        assert.equal(r.sideCostTotal, 6360);
+        assert.equal(r.topCost, 9000);
+        assert.equal(r.total, 15360);
         assert.equal(r.sideCabinetMaxHeightFt, 3.44);
         assert.equal(r.overheadCabinetHeightFt, 4);      // hits the cap
         assert.equal(r.uncoveredWallHeightFt, 1.56);     // bare wall above
@@ -1430,7 +1430,7 @@ describe('side-cabinet height is per wall bed model', () => {
             wallHeightFt: 9, wallBedWidthFt: GIOCO_WIDTH_FT, totalWallWidthFt: 12,
             sideCabinetHeightFt: resolveSideCabinetHeightFt('Gioco Queen')
         });
-        assert.equal(r.total, 17355, 'price must be identical to the Gioco Single case');
+        assert.equal(r.total, 15360, 'price must be identical to the Gioco Single case');
         assert.equal(r.sideCabinetMaxHeightFt, 5.58);
         assert.equal(r.overheadCabinetHeightFt, 3.42);   // under the cap
         assert.equal(r.uncoveredWallHeightFt, 0);
@@ -1471,7 +1471,7 @@ describe('WALL_TOO_SHORT_FOR_CABINETRY uses the per-model minimum', () => {
             wallHeightFt: 5, wallBedWidthFt: GIOCO_WIDTH_FT, totalWallWidthFt: 12,
             sideCabinetHeightFt: resolveSideCabinetHeightFt('Gioco Single')
         });
-        assert.equal(gioco.total, 17355);
+        assert.equal(gioco.total, 15360);
         assert.equal(gioco.overheadCabinetHeightFt, 1.56);
 
         assert.throws(
@@ -1510,7 +1510,7 @@ describe('WALL_TOO_SHORT_FOR_CABINETRY uses the per-model minimum', () => {
         assert.ok(est, 'expected an estimate');
         assert.ok(!est.blocked, 'a 5ft wall must NOT be blocked for a 3.44ft Gioco Single');
         assert.equal(est.sideCabinetMaxHeightFt, 3.44);
-        assert.equal(est.total, 17355);
+        assert.equal(est.total, 15360);
     });
 
     test('the same 5ft wall is still blocked for a Murano', () => {
@@ -1539,7 +1539,7 @@ describe('deposit offer trigger', () => {
     // deliberately NOT enough to offer a deposit on its own.
     const PLAIN_WALLBED_INFO = [
         { role: 'user', content: 'Do you have a Murano Queen?' },
-        { role: 'assistant', content: 'Yes — the Murano Queen is RM 19,102.22 retail | RM 14,371.55 sale.' }
+        { role: 'assistant', content: 'Yes — the Murano Queen is RM 16,809.95 retail | RM 12,646.96 sale.' }
     ];
 
     // The same conversation, once the customer says they actually want it.
@@ -1764,7 +1764,7 @@ describe('deposit offer requires purchase intent', () => {
 
     const PRICED = [
         { role: 'user', content: 'Is there a Murano Single?' },
-        { role: 'assistant', content: 'Yes — the Murano Single is RM 16,083.40 retail | RM 12,062.55 sale.' }
+        { role: 'assistant', content: 'Yes — the Murano Single is RM 16,083.40 retail | RM 10,615.04 sale.' }
     ];
 
     test('an availability question about a priced model offers nothing', () => {
@@ -1827,7 +1827,7 @@ describe('deposit notification email', () => {
     const BASE = {
         quoteRef: 'MQS-20260901-ABC234',
         depositPercent: '10',
-        depositAmountPaid: '1437.16',
+        depositAmountPaid: '1264.70',
         customerName: 'Aisyah Binti Rahman',
         customerEmail: 'buyer@example.com',
         customerPhone: '+60123456789',
@@ -1839,7 +1839,7 @@ describe('deposit notification email', () => {
         ...BASE,
         depositTypeLabel: depositTypeLabel(DEPOSIT_TYPE_WALLBED_ONLY),
         wallBedModel: 'Murano Queen',
-        grandTotal: '14371.55',
+        grandTotal: '12646.96',
         wallHeightFt: null,
         totalWallWidthFt: null
     });
@@ -1848,8 +1848,8 @@ describe('deposit notification email', () => {
         ...BASE,
         depositTypeLabel: depositTypeLabel(DEPOSIT_TYPE_WITH_CABINETRY),
         wallBedModel: 'Murano Queen Sofa',
-        grandTotal: '38300.11',
-        depositAmountPaid: '3830.01',
+        grandTotal: '33778.34',
+        depositAmountPaid: '3377.83',
         wallHeightFt: '11',
         totalWallWidthFt: '10'
     });
@@ -1993,8 +1993,8 @@ describe('deposit notification email', () => {
         const { html } = withCabinetry();
         assert.match(html, /MQS-20260901-ABC234/);
         assert.match(html, /Murano Queen Sofa/);
-        assert.match(html, /RM 38300\.11/);
-        assert.match(html, /RM 3830\.01/);
+        assert.match(html, /RM 33778\.34/);
+        assert.match(html, /RM 3377\.83/);
         assert.match(html, /Aisyah Binti Rahman/);
         assert.match(html, /buyer@example\.com/);
         assert.match(html, /\+60123456789/);
@@ -2048,7 +2048,7 @@ describe('depositTypeLabel — single source shared with the Sheet column', () =
     test('every deposit type the flow can produce has a label', () => {
         const only = getDepositBasisFromContext('Sounds good, I will take it', [
             { role: 'user', content: 'Do you have a Murano Queen?' },
-            { role: 'assistant', content: 'Yes — the Murano Queen is RM 14,371.55 sale.' }
+            { role: 'assistant', content: 'Yes — the Murano Queen is RM 12,646.96 sale.' }
         ]);
         const cab = getDepositBasisFromContext('10ft', [
             { role: 'user', content: 'Murano Queen Sofa with side cabinets, how much in total?' },
@@ -2136,7 +2136,7 @@ describe('purchase intent: affirmative reply to a reservation invitation counts'
     test('affirming a reservation invite yields a wall-bed deposit offer', () => {
         const history = [
             { role: 'user', content: 'Yes Murano King' },
-            { role: 'assistant', content: 'The Murano King ... Sale: RM 15,285.45 ... ' + invite },
+            { role: 'assistant', content: 'The Murano King ... Sale: RM 13,451.20 ... ' + invite },
             { role: 'user', content: 'Yes' }
         ];
         const offer = computeDepositOffer('Yes', history);
@@ -2212,7 +2212,7 @@ describe('deposit suppression diagnostics', () => {
 
     const PRICED = [
         { role: 'user', content: 'Is there a Murano Single?' },
-        { role: 'assistant', content: 'Yes — the Murano Single is RM 16,083.40 retail | RM 12,062.55 sale.' }
+        { role: 'assistant', content: 'Yes — the Murano Single is RM 16,083.40 retail | RM 10,615.04 sale.' }
     ];
 
     // Requirement: a conversation with no wall-bed context must not log. This
@@ -2252,7 +2252,7 @@ describe('deposit suppression diagnostics', () => {
             { role: 'user', content: 'My ceiling is 7ft, do you have a Murano Queen?' },
             { role: 'assistant', content: 'What is your ceiling height?' },
             { role: 'user', content: '7ft' },
-            { role: 'assistant', content: 'The Murano Queen is RM 14,371.55 sale.' }
+            { role: 'assistant', content: 'The Murano Queen is RM 12,646.96 sale.' }
         ]);
         assert.equal(result, null, 'behaviour must be unchanged — still no offer');
         assert.equal(warns.length, 0, 'this case must NOT be a routine warn');
@@ -2264,7 +2264,7 @@ describe('deposit suppression diagnostics', () => {
     test('cabinetry in progress with buy intent raises the WITHHELD alarm', () => {
         const { result, warns, errors } = capture('I want to buy the Murano Queen', [
             { role: 'user', content: 'Murano Queen with side cabinets please' },
-            { role: 'assistant', content: 'The Murano Queen is RM 14,371.55 sale. What is the wall height?' }
+            { role: 'assistant', content: 'The Murano Queen is RM 12,646.96 sale. What is the wall height?' }
         ]);
         assert.equal(result, null);
         assert.equal(warns.length, 0);
@@ -2311,7 +2311,7 @@ describe('cabinetry: escalates to a human when the measurement loop is stuck', (
         const out = buildCabinetryEstimateBlock('not sure', history);
         assert.match(out, /KEEP ASKING/);
         assert.doesNotMatch(out, /HAND OFF TO A HUMAN/);
-        assert.doesNotMatch(out, /12-568 4568/);
+        assert.doesNotMatch(out, /12-345 6789/);
     });
 
     test('after 2 failed asks it escalates to the WhatsApp handoff', () => {
@@ -2323,7 +2323,7 @@ describe('cabinetry: escalates to a human when the measurement loop is stuck', (
         ];
         const out = buildCabinetryEstimateBlock('I really dont know', history);
         assert.match(out, /STUCK, HAND OFF TO A HUMAN/);
-        assert.match(out, /\+60 12-568 4568/, 'must carry the product WhatsApp number');
+        assert.match(out, /\+60 12-345 6789/, 'must carry the product WhatsApp number');
         assert.match(out, /STOP asking for it again/i);
 
         // The two instructions contradict each other, so the escalation has to
@@ -2398,8 +2398,8 @@ describe('system prompt — when to hand off to a human', () => {
 
     test('has a dedicated handoff section with both numbers', () => {
         assert.match(prompt, /WHEN TO HAND OFF TO A HUMAN:/);
-        assert.match(prompt, /\+60 12-568 4568 for products/);
-        assert.match(prompt, /\+60 12-475 4568 for renovation/);
+        assert.match(prompt, /\+60 12-345 6789 for products/);
+        assert.match(prompt, /\+60 12-345 6780 for renovation/);
     });
 
     test('names all four handoff triggers', () => {
@@ -2494,7 +2494,7 @@ describe('hasPriceIntent — agreeing to the bot\'s own estimate offer', () => {
     test('the full estimate block is produced after agreeing with "yes"', () => {
         const history = [
             { role: 'user', content: 'I want a Murano Queen' },
-            { role: 'assistant', content: 'The Murano Queen is RM 14,371.55 sale. Would you like an estimate for adding surround cabinetry?' },
+            { role: 'assistant', content: 'The Murano Queen is RM 12,646.96 sale. Would you like an estimate for adding surround cabinetry?' },
             { role: 'user', content: 'yes' },
             { role: 'assistant', content: 'What is the total height of the wall, in feet?' },
             { role: 'user', content: '11ft' },
@@ -2552,12 +2552,12 @@ describe('deposit amount options', () => {
     // the purchase-intent suite already relies on).
     const BED_ONLY_HISTORY = [
         { role: 'user', content: 'Is there a Murano Single?' },
-        { role: 'assistant', content: 'Yes — the Murano Single is RM 16,083.40 retail | RM 12,062.55 sale.' }
+        { role: 'assistant', content: 'Yes — the Murano Single is RM 16,083.40 retail | RM 10,615.04 sale.' }
     ];
     const BED_ONLY_MESSAGE = 'I want the Murano Single';
     const bedOnlyTotal = () => WALLBED_MODEL_PRICING.find(m => m.label === 'Murano Single').sale;
 
-    // Worked example 4 — the cabinetry fixture whose grand total (RM 38,300.11)
+    // Worked example 4 — the cabinetry fixture whose grand total (RM 33,778.34)
     // is verified against the formula earlier in this file.
     const CAB_HISTORY = [
         { role: 'user', content: 'I want a Murano Queen Sofa with side cabinets around it, how much in total?' },
@@ -2624,12 +2624,12 @@ describe('deposit amount options', () => {
     // A widget loaded before options existed sends no choice; it must still get
     // the 10% deposit it always did. Only an ABSENT choice may default.
     test('an absent choice resolves to the 10% deposit; a present invalid one does not', () => {
-        const total = 38300.11;
+        const total = 33778.34;
         for (const absent of [undefined, null]) {
             const r = resolveDepositChoice(total, absent);
             assert.equal(r.ok, true);
             assert.equal(r.option.id, DEPOSIT_OPTION_PERCENT);
-            assert.equal(r.option.amount, 3830.01);
+            assert.equal(r.option.amount, 3377.83);
         }
         assert.equal(resolveDepositChoice(total, '').ok, false,
             'a present-but-empty choice is invalid, not a request for the default');
@@ -2659,7 +2659,7 @@ describe('deposit amount options', () => {
     });
 
     test('no options exist for a missing or nonsensical grand total', () => {
-        for (const total of [0, -100, NaN, Infinity, null, undefined, '38300.11']) {
+        for (const total of [0, -100, NaN, Infinity, null, undefined, '33778.34']) {
             assert.deepEqual(getDepositOptions(total), [], 'no options for ' + String(total));
             assert.equal(resolveDepositChoice(total, undefined).ok, false);
         }
@@ -2669,9 +2669,9 @@ describe('deposit amount options', () => {
     test('computeDepositOffer keeps its 10% fields and lists the options for a real conversation', () => {
         const offer = computeDepositOffer(CAB_MESSAGE, CAB_HISTORY);
         assert.ok(offer, 'fixture must produce an offer');
-        assert.equal(offer.grandTotal, 38300.11);
+        assert.equal(offer.grandTotal, 33778.34);
         assert.equal(offer.depositPercent, DEPOSIT_PERCENT);
-        assert.equal(offer.depositAmount, 3830.01);
+        assert.equal(offer.depositAmount, 3377.83);
         assert.deepEqual(offer.depositOptions.map(o => o.id),
             ['percent', 'fixed_1500', 'fixed_2500', 'fixed_3500', 'fixed_4500']);
         assert.equal(offer.depositOptions[0].amount, offer.depositAmount,
@@ -2695,7 +2695,7 @@ describe('deposit amount options', () => {
     test('buildDepositCharge charges a chosen fixed amount exactly, and records the choice', () => {
         const charge = buildDepositCharge(CAB_MESSAGE, CAB_HISTORY, 'fixed_2500');
         assert.equal(charge.ok, true);
-        assert.equal(charge.grandTotal, 38300.11, 'the grand total is still the server-computed one');
+        assert.equal(charge.grandTotal, 33778.34, 'the grand total is still the server-computed one');
         assert.equal(charge.depositAmount, 2500);
         assert.equal(charge.unitAmountCents, 250000);
         assert.equal(charge.productName, 'RM 2,500.00 Deposit — Murano Queen Sofa + Cabinetry');
@@ -2703,7 +2703,7 @@ describe('deposit amount options', () => {
         assert.equal(charge.metadata.deposit_option_kind, 'fixed');
         assert.equal(charge.metadata.deposit_option_label, 'Fixed RM 2,500.00');
         assert.equal(charge.metadata.deposit_percent, '', 'no percentage was applied — do not claim one');
-        assert.equal(charge.metadata.grand_total, '38300.11');
+        assert.equal(charge.metadata.grand_total, '33778.34');
         assert.equal(charge.metadata.cabinets, 'Yes');
         assert.equal(charge.metadata.wall_height_ft, '11');
         assert.equal(charge.metadata.total_wall_width_ft, '10');
@@ -2758,18 +2758,18 @@ describe('deposit amount options', () => {
         const { text, html } = buildDepositEmail({
             depositTypeLabel: 'Wall Bed Only',
             wallBedModel: 'Murano Single',
-            grandTotal: '12062.55',
+            grandTotal: '10615.04',
             depositPercent: '',
             depositOption: 'fixed_1500',
             depositOptionKind: 'fixed',
-            depositOptionLabel: 'Fixed RM 1,500.00',
-            depositAmountPaid: '1500.00'
+            depositOptionLabel: 'Fixed RM 1,302.00',
+            depositAmountPaid: '1302.00'
         });
-        assert.match(text, /^Deposit option: Fixed RM 1,500\.00$/m);
+        assert.match(text, /^Deposit option: Fixed RM 1,302\.00$/m);
         assert.match(text, /A fixed-amount deposit has been paid\./);
         assert.doesNotMatch(text, /\?%/, 'must not print a placeholder percentage');
         assert.match(html, /Deposit option/);
-        assert.match(html, /Fixed RM 1,500\.00/);
+        assert.match(html, /Fixed RM 1,302\.00/);
         assert.doesNotMatch(html, /Deposit %/, 'no percentage row for a fixed deposit');
         assert.doesNotMatch(html, /\?%/);
     });
@@ -2939,8 +2939,8 @@ describe('product reservation deposits', () => {
         assert.ok(offer);
         assert.equal(offer.depositType, DEPOSIT_TYPE_WITH_CABINETRY);
         assert.notEqual(offer.depositType, DEPOSIT_TYPE_RESERVATION);
-        assert.equal(offer.grandTotal, 38300.11);
-        assert.equal(offer.depositAmount, 3830.01);
+        assert.equal(offer.grandTotal, 33778.34);
+        assert.equal(offer.depositAmount, 3377.83);
         assert.deepEqual(offer.depositOptions.map(o => o.id), ['percent', ...RESERVATION_IDS]);
         assert.equal(offer.productLabel, 'Murano Queen Sofa', 'the model is mirrored for the Product column');
     });
@@ -2948,7 +2948,7 @@ describe('product reservation deposits', () => {
     test('a priced wall bed with buy intent is still wallbed_only, not a reservation', () => {
         const basis = getDepositBasisFromContext('I want the Murano Single', [
             { role: 'user', content: 'Is there a Murano Single?' },
-            { role: 'assistant', content: 'Yes — the Murano Single is RM 16,083.40 retail | RM 12,062.55 sale.' }
+            { role: 'assistant', content: 'Yes — the Murano Single is RM 16,083.40 retail | RM 10,615.04 sale.' }
         ]);
         assert.ok(basis);
         assert.equal(basis.type, DEPOSIT_TYPE_WALLBED_ONLY);
@@ -3025,11 +3025,11 @@ describe('product reservation deposits', () => {
             wallBedModel: 'Murano Queen',
             productLabel: 'Murano Queen',
             depositPercent: '10',
-            grandTotal: '14371.55',
-            depositAmountPaid: '1437.16'
+            grandTotal: '12646.96',
+            depositAmountPaid: '1264.70'
         });
         assert.equal(subject, 'New Deposit — Wall Bed Only (Murano Queen)');
         assert.match(text, /Wall bed model: Murano Queen/);
-        assert.match(text, /Grand total: RM 14371\.55/);
+        assert.match(text, /Grand total: RM 12646\.96/);
     });
 });

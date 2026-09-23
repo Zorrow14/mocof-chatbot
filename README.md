@@ -150,7 +150,7 @@ Re-asking has a limit. Once the bot has asked for the same measurement twice and
 
 ### Human handoff
 
-Beyond the price guardrail's fallback, the system prompt tells the bot to offer a colleague on WhatsApp — **+60 12-568 4568** for products, **+60 12-475 4568** for renovation — when the customer seems confused or frustrated, when it has failed to help with the same thing across a couple of turns, when a request is outside the catalog or it isn't confident in its answer, or when the customer asks for a person. The handoff is framed as help arriving rather than a dead end, and the bot keeps answering what it can alongside it. This is the one exception to the rule that otherwise keeps the WhatsApp number out of non-renovation replies.
+Beyond the price guardrail's fallback, the system prompt tells the bot to offer a colleague on WhatsApp — **+60 12-345 6789** for products, **+60 12-345 6780** for renovation — when the customer seems confused or frustrated, when it has failed to help with the same thing across a couple of turns, when a request is outside the catalog or it isn't confident in its answer, or when the customer asks for a person. The handoff is framed as help arriving rather than a dead end, and the bot keeps answering what it can alongside it. This is the one exception to the rule that otherwise keeps the WhatsApp number out of non-renovation replies.
 
 ### Deposit flow
 
@@ -240,11 +240,11 @@ Each notification goes out as **both an HTML table and a plain-text version**, i
 
 **Sender address and the test-sender restriction.** With no `EMAIL_FROM_ADDRESS` set, the webhook sends from Resend's shared test sender (`onboarding@resend.dev`). Resend restricts that sender to delivering **only to the email address the Resend account was registered with**. So the minimal working setup is to register Resend with the inbox you want the alerts in, and set `COMPANY_NOTIFY_EMAIL` to that same address — no DNS or domain setup required. Sending to any other address returns a `403` and no email arrives (the webhook catches this and logs it rather than failing the request).
 
-**Why the domain isn't verified with Resend.** Short version: `mocof.com.my` cannot complete Resend's standard domain verification while its DNS is hosted at Wix, so this deployment stays on the test sender deliberately — it is not an unfinished setup step.
+**Why the domain isn't verified with Resend.** Short version: `mocof.example.com` cannot complete Resend's standard domain verification while its DNS is hosted at Wix, so this deployment stays on the test sender deliberately — it is not an unfinished setup step.
 
 - The domain's nameservers are `ns2.wixdns.net` and `ns3.wixdns.net`, so every DNS record is edited **inside Wix**, not at the original registrar.
-- Resend's standard verification requires an **MX record on a sending subdomain** (e.g. `send.mocof.com.my`). That MX record is what receives Resend's Return-Path traffic — bounces and complaints — and it forms part of the SPF setup.
-- **Wix does not allow MX records on subdomains.** It supports them only on the root domain, and those root MX records are already in use by Google Workspace to receive `@mocof.com.my` mail. They must not be touched.
+- Resend's standard verification requires an **MX record on a sending subdomain** (e.g. `send.mocof.example.com`). That MX record is what receives Resend's Return-Path traffic — bounces and complaints — and it forms part of the SPF setup.
+- **Wix does not allow MX records on subdomains.** It supports them only on the root domain, and those root MX records are already in use by Google Workspace to receive `@mocof.example.com` mail. They must not be touched.
 - With no way to create the subdomain MX record Resend asks for, verification cannot be completed through Wix DNS.
 
 That is why `EMAIL_FROM_ADDRESS` is intentionally left unset. `EMAIL_API_KEY` and `COMPANY_NOTIFY_EMAIL` are both set, and `COMPANY_NOTIFY_EMAIL` is the same address the Resend account is registered under — the only address the shared test sender is permitted to deliver to. One practical consequence to expect: mail from `onboarding@resend.dev` is unauthenticated for our domain and commonly lands in spam, so whitelist it in the receiving inbox.
